@@ -1,0 +1,388 @@
+@import "tailwindcss";
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --radius-2xl: calc(var(--radius) + 12px);
+}
+
+:root {
+  --radius: 1rem;
+
+  --background: #FFFFFF;
+  --foreground: #161824;
+
+  --primary: #D91B24;
+  --primary-foreground: #FFFFFF;
+
+  --secondary: #F1F1F6;
+  --secondary-foreground: #161824;
+
+  --muted: #F1F1F6;
+  --muted-foreground: #686B78;
+
+  --accent: #F1F1F6;
+  --accent-foreground: #D91B24;
+
+  --destructive: #dc2626;
+  --destructive-foreground: #fafafa;
+
+  --border: #F1F1F6;
+  --input: #F1F1F6;
+  --ring: #D91B24;
+
+  --card: #FFFFFF;
+  --card-foreground: #161824;
+
+  --popover: #FFFFFF;
+  --popover-foreground: #161824;
+}
+
+@layer base {
+  * {
+    border-color: var(--border);
+  }
+
+  html {
+    @apply scroll-smooth;
+    -webkit-tap-highlight-color: transparent;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  body {
+    background-color: var(--background);
+    color: var(--foreground);
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11", "ss01";
+    /* WYSHKIT 2026: Refined Premium Typography Base */
+    @apply font-sans text-[14px] leading-[1.5] tracking-tight antialiased;
+  }
+
+
+  /* Compact Headings - Swiggy 2026 Premium */
+  h1 {
+    @apply text-2xl font-bold tracking-tight leading-tight mb-3;
+  }
+
+  h2 {
+    @apply text-xl font-bold tracking-tight leading-tight mb-2;
+  }
+
+  h3 {
+    @apply text-lg font-bold tracking-tight leading-tight mb-1.5;
+  }
+
+  h4 {
+    @apply text-base font-bold tracking-tight mb-1;
+  }
+
+  p {
+    @apply text-[14px] text-[#3D4152] leading-snug;
+  }
+
+  button,
+  input,
+  select,
+  textarea {
+    @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#D91B24]/20 focus-visible:ring-offset-0;
+  }
+}
+
+@layer utilities {
+  .surface-card {
+    @apply bg-white rounded-[16px] border border-[#F1F1F6] shadow-[0_4px_20px_rgb(0_0_0/0.04)];
+  }
+
+  .surface-elevated {
+    @apply bg-white rounded-[24px] shadow-[0_12px_40px_rgb(0_0_0/0.08)] border border-[#F1F1F6];
+  }
+
+  .label-overline {
+    @apply text-[10px] font-black uppercase tracking-[0.1em] text-[#686B78] mb-1.5 block;
+  }
+
+  .label-caption {
+    @apply text-[11px] text-[#686B78] font-medium leading-none;
+  }
+
+  /* High Density Buttons */
+  .btn-primary {
+    @apply h-11 w-full rounded-[12px] bg-[#D91B24] text-white font-bold text-[14px] active:scale-[0.96] transition-all flex items-center justify-center gap-2 shadow-[0_4px_12px_rgb(217_27_36/0.2)];
+  }
+
+  .btn-secondary {
+    @apply h-11 w-full rounded-[12px] bg-[#F1F1F6] text-[#161824] font-bold text-[14px] active:scale-[0.96] transition-all flex items-center justify-center gap-2;
+  }
+
+  .input-field {
+    @apply h-11 w-full rounded-[12px] border-none bg-[#F1F1F6] px-4 text-[14px] font-bold placeholder:text-[#686B78]/50 placeholder:font-medium focus:bg-white focus:ring-2 focus:ring-[#D91B24]/10 transition-all outline-none;
+  }
+
+  .list-item {
+    @apply flex items-center gap-3 p-3 -mx-2 rounded-[12px] hover:bg-[#F1F1F6] active:scale-[0.98] transition-all cursor-pointer;
+  }
+
+  .divider {
+    @apply h-[1px] bg-[#F1F1F6] my-4;
+  }
+
+  .safe-bottom {
+    padding-bottom: max(1rem, env(safe-area-inset-bottom));
+  }
+
+  /* Wyshkit 2026: Ultra-tight scrolling */
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar {
+    width: 4px;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar-thumb {
+    background: #E4E4E7;
+    border-radius: 10px;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: #D4D4D8;
+  }
+}
+
+/* WYSHKIT 2026: Animations - slide-up, scale-in, fade-in, slide-in-from-* use tailwindcss-animate pattern.
+   Custom-only: flyToCart, confetti-fall, slideToPay-shimmer, shimmer. */
+@keyframes slide-up {
+  from {
+    transform: translateY(10px);
+    opacity: 0;
+  }
+
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.animate-in {
+  animation: slide-up 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes scale-in {
+  from {
+    transform: scale(0);
+    opacity: 0;
+  }
+
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+.scale-in {
+  animation: scale-in 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* WYSHKIT 2026: CSS animations for slide-in effects */
+@keyframes slide-in-from-bottom-2 {
+  from {
+    transform: translateY(8px);
+    opacity: 0;
+  }
+
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@keyframes slide-in-from-bottom-4 {
+  from {
+    transform: translateY(16px);
+    opacity: 0;
+  }
+
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@keyframes slide-in-from-bottom-5 {
+  from {
+    transform: translateY(20px);
+    opacity: 0;
+  }
+
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@keyframes slide-in-from-top-2 {
+  from {
+    transform: translateY(-8px);
+    opacity: 0;
+  }
+
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@keyframes shimmer {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+.slide-in-from-bottom-2 {
+  animation: slide-in-from-bottom-2 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.slide-in-from-bottom-4 {
+  animation: slide-in-from-bottom-4 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.slide-in-from-bottom-5 {
+  animation: slide-in-from-bottom-5 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.slide-in-from-top-2 {
+  animation: slide-in-from-top-2 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.animate-shimmer {
+  animation: shimmer 2s ease-in-out infinite;
+}
+
+.fade-in {
+  animation: fade-in 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes pulse-subtle {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.85; }
+}
+
+.animate-pulse-subtle {
+  animation: pulse-subtle 3s ease-in-out infinite;
+}
+
+/* WYSHKIT 2026: Confetti animation */
+@keyframes confetti-fall {
+  from {
+    transform: translateY(-20px) translateX(0) rotate(0deg);
+    opacity: 1;
+  }
+
+  to {
+    transform: translateY(120vh) translateX(var(--confetti-drift, 0)) rotate(360deg);
+    opacity: 0;
+  }
+}
+
+.confetti-piece {
+  top: 0;
+  animation: confetti-fall var(--confetti-duration, 4s) ease-in forwards;
+  animation-delay: var(--confetti-delay, 0s);
+}
+
+/* WYSHKIT 2026: Native View Transitions (Morphing UI) */
+@view-transition {
+  navigation: auto;
+}
+
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: 0.3s;
+  animation-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* Smooth Morphing for Partners/Items */
+::view-transition-old(partner),
+::view-transition-new(partner) {
+  animation: none;
+  mix-blend-mode: normal;
+  display: block;
+}
+
+/* 2026 Polish: Remove jitter on exit */
+::view-transition-old(root) {
+  opacity: 0;
+  transition: opacity 0.1s ease-out;
+}
+
+/* Cart animation keyframe (CSS variables for start/end position) */
+@keyframes flyToCart {
+  0% {
+    transform: translate(var(--fly-start-x, 0px), var(--fly-start-y, 0px)) scale(1);
+    opacity: 1;
+  }
+  100% {
+    transform: translate(var(--fly-end-x, 0px), var(--fly-end-y, 0px)) scale(0.2);
+    opacity: 0.5;
+  }
+}
+
+/* WYSHKIT 2026: SlideToPay shimmer - static keyframe */
+@keyframes slideToPay-shimmer {
+  0%, 100% { transform: translateX(0); opacity: 0; }
+  50% { transform: translateX(var(--shimmer-distance, 200px)); opacity: 0.3; }
+}

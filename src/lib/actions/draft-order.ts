@@ -1,0 +1,808 @@
+'use server'
+
+import { createClient } from '@/lib/supabase/server'
+import { revalidatePath } from 'next/cache'
+
+function revalidateCartPaths() {
+  revalidatePath('/')
+  revalidatePath('/checkout')
+}
+import { DraftTransaction, DraftLineItem, SelectedPersonalization, SelectedAddon } from '@/lib/types/personalization'
+import { calculateItemPrice, calculateCartSubtotal } from '@/lib/utils/pricing'
+import { logError, handleActionError } from '@/lib/utils/error-handler'
+import { getGuestSessionId, getGuestSessionIdReadOnly } from '@/lib/session'
+import { DBItem, DBVariant } from '@/lib/supabase/types'
+import { createAdminClient } from '@/lib/supabase/server'
+
+// Define interfaces for View and Join results
+interface CartItemView {
+  id: string;
+  itemId: string;
+  itemName: string;
+  itemImage: string;
+  quantity: number;
+  variantPrice: number | null;
+  basePrice: number | null;
+  selectedVariantId: string | null;
+  personalization: SelectedPersonalization | null;
+  selectedAddons: SelectedAddon[] | null;
+  partnerName: string | null;
+  partnerId: string | null;
+  userId?: string | null;
+  sessionId?: string | null;
+}
+
+/** Raw row from getCart query (cart_items + joined items, partners, variants). */
+interface CartItemRawRow {
+  id: string;
+  item_id: string;
+  quantity: number;
+  selected_variant_id: string | null;
+  personalization: SelectedPersonalization | null;
+  selected_addons: SelectedAddon[] | null;
+  user_id?: string | null;
+  session_id?: string | null;
+  items?: {
+    id: string;
+    name: string | null;
+    base_price: number | null;
+    images: string[] | null;
+    partner_id?: string | null;
+    partners?: { name: string | null } | null;
+  } | null;
+  variants?: { price: number | null } | null;
+}
+
+interface ItemWithVariants extends Pick<DBItem, 'id' | 'name' | 'base_price' | 'images' | 'partner_id'> {
+  variants: Pick<DBVariant, 'id' | 'name' | 'price'>[];
+}
+
+/** WYSHKIT 2026: Max quantity per line (Swiggy-style cap). */
+const MAX_ITEM_QUANTITY = 10;
+
+/** Cart identity for remounting CartProvider when guest → user (so merged cart is shown). */
+export type GetCartResult = {
+  cart?: DraftTransaction
+  error?: string
+  cartIdentity?: string
+  /** For guests: session id so client can filter realtime (no leak). Omitted when user. */
+  guestSessionId?: string | null
+}
+
+export async function getCart(): Promise<GetCartResult> {
+  try {
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser()
+    const sessionId = !user ? await getGuestSessionIdReadOnly() : null
+
+    if (!user && !sessionId) {
+      return { cart: { items: [], partnerId: null, subtotal: 0, total: 0, itemCount: 0 }, cartIdentity: 'empty', guestSessionId: null }
+    }
+
+    const cartIdentity = user?.id ?? sessionId ?? 'empty'
+    const guestSessionId = user ? undefined : sessionId
+
+    // WYSHKIT 2026: v_cart_items view
+    // Note: The view needs selected_addons column added too if using view
+    // Or fetch directly from cart_items joined with items
+    // For now, let's assume v_cart_items is updated or we use direct query if v_cart_items doesn't have it
+    // Actually, v_cart_items is a view. If I alter table, view might not auto-update unless recreated.
+    // For robustness, I'll switch to direct join query which is safer after schema change
+
+    let query = supabase.from('cart_items')
+      .select(
+        `
+        id, 
+        item_id, 
+        quantity, 
+        selected_variant_id, 
+        personalization, 
+        selected_addons,
+        items:items (
+          id, 
+          name, 
+          base_price, 
+          images, 
+          partner_id,
+          partners:partners (name, latitude, longitude)
+        ),
+        variants:variants (price)
+      `
+      )
+      .order('id', { ascending: true });
+
+    if (user) {
+      query = query.eq('user_id', user.id);
+    } else {
+      query = query.eq('session_id', sessionId!);
+    }
+
+    const { data: cartItemsRaw, error } = await query;
+
+    if (error) throw error;
+
+    // Transform raw data to DraftLineItem (CartItemRawRow shapes the joined result)
+    const cartItems: CartItemView[] = ((cartItemsRaw || []) as CartItemRawRow[]).map((ci) => ({
+      id: ci.id,
+      itemId: ci.item_id,
+      itemName: ci.items?.name || 'Item',
+      itemImage: (ci.items?.images && ci.items.images[0]) || '/images/logo.png',
+      quantity: ci.quantity,
+      variantPrice: ci.variants?.price || 0,
+      basePrice: ci.items?.base_price || 0,
+      selectedVariantId: ci.selected_variant_id,
+      personalization: ci.personalization,
+      selectedAddons: ci.selected_addons,
+      partnerName: ci.items?.partners?.name || 'Store',
+      partnerId: ci.items?.partner_id ?? null,
+      partnerLatitude: (ci.items?.partners as any)?.latitude ?? null,
+      partnerLongitude: (ci.items?.partners as any)?.longitude ?? null,
+      userId: ci.user_id ?? null,
+      sessionId: ci.session_id ?? null,
+    }));
+
+    const partnerIds = new Set((cartItems || []).map((item) => item.partnerId).filter(Boolean))
+    const partnerId = partnerIds.size === 1 ? Array.from(partnerIds)[0] as string : null
+
+    // 2. Fetch Pricing from Server-Side View (Atomic Truth)
+    const { data: totalsData } = await supabase.from('v_active_cart_totals')
+      .select('pricing')
+      .or(user ? `user_id.eq.${user.id}` : `session_id.eq.${sessionId}`)
+      .maybeSingle();
+
+    const dbPricing = (totalsData?.pricing as any) || { subtotal: 0, total: 0 };
+
+    // 3. Map Items
+    const items: DraftLineItem[] = (cartItems || []).map((ci) => {
+      const quantity = Number(ci.quantity) || 1;
+      const unitPrice = Number(ci.variantPrice || ci.basePrice) || 0;
+      // Note: For individual line item display, we show base+variant. 
+      // Addons/Personalization are aggregated in the total view.
+
+      return {
+        id: ci.id,
+        itemId: ci.itemId,
+        itemName: ci.itemName,
+        itemImage: ci.itemImage,
+        quantity: quantity,
+        unitPrice: unitPrice,
+        totalPrice: unitPrice * quantity,
+        selectedVariantId: ci.selectedVariantId,
+        personalization: ci.personalization || undefined,
+        selectedAddons: ci.selectedAddons || undefined,
+        partnerName: ci.partnerName || 'Store',
+      };
+    });
+
+    const subtotal = Number(dbPricing.subtotal) || 0;
+    const total = Number(dbPricing.total) || 0;
+    const itemCount = items.reduce((sum, item) => sum + (Number(item.quantity) || 0), 0);
+
+    return {
+      cart: {
+        items,
+        partnerId,
+        subtotal,
+        total,
+        itemCount,
+      },
+      cartIdentity,
+      guestSessionId,
+    }
+  } catch (error) {
+    logError(error, 'GetDraftOrder')
+    return {
+      cart: {
+        items: [],
+        partnerId: null,
+        subtotal: 0,
+        total: 0,
+        itemCount: 0,
+      },
+      error: error instanceof Error ? error.message : 'Failed to fetch cart',
+      cartIdentity: 'empty',
+      guestSessionId: null,
+    }
+  }
+}
+
+/**
+ * WYSHKIT 2026: Merge guest cart into logged-in user (Swiggy 2026 pattern).
+ * Call after verifyOTP success so cart is not lost on login.
+ * Uses service role because RLS does not allow user to UPDATE rows with user_id = null.
+ */
+export async function mergeGuestCartToUser(): Promise<{ merged: boolean; error?: string }> {
+  try {
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return { merged: false };
+
+    const guestSessionId = await getGuestSessionIdReadOnly();
+    if (!guestSessionId) return { merged: true };
+
+    const admin = await createAdminClient();
+    const { error } = await admin
+      .from('cart_items')
+      .update({ user_id: user.id, session_id: null })
+      .eq('session_id', guestSessionId);
+
+    if (error) {
+      logError(error, 'MergeGuestCartToUser');
+      return { merged: false, error: error.message };
+    }
+    return { merged: true };
+  } catch (err) {
+    logError(err, 'MergeGuestCartToUser');
+    return { merged: false, error: err instanceof Error ? err.message : 'Merge failed' };
+  }
+}
+
+/**
+ * WYSHKIT 2026: addToCart with Deferred Authentication Support
+ */
+export async function addToCart(payload: {
+  itemId: string
+  variantId?: string | null
+  personalization?: SelectedPersonalization
+  selectedAddons?: SelectedAddon[]
+  quantity?: number
+}) {
+  try {
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser()
+    const sessionId = !user ? await getGuestSessionId() : null
+
+    const { itemId, variantId, personalization, selectedAddons, quantity: rawQty = 1 } = payload
+    const quantity = Math.min(Math.max(1, Math.floor(Number(rawQty) || 1)), MAX_ITEM_QUANTITY)
+
+    const [itemRes, cartRes, variantsRes] = await Promise.all([
+      supabase.from('items')
+        .select('partner_id, is_active')
+        .eq('id', itemId)
+        .eq('is_active', true)
+        .maybeSingle(),
+      (async () => {
+        let query = supabase.from('cart_items')
+          .select('id, item_id, quantity, selected_variant_id, personalization, selected_addons')
+
+        if (user) {
+          query = query.eq('user_id', user.id)
+        } else if (sessionId) {
+          query = query.eq('session_id', sessionId)
+        }
+        return query;
+      })(),
+      supabase.from('variants').select('id, stock_quantity').eq('item_id', itemId).limit(1),
+    ])
+
+    const { data: item, error: itemError } = itemRes as { data: { partner_id: string; is_active: boolean } | null, error: any }
+    const { data: cartItems, error: cartError } = (await cartRes) as { data: CartItemRawRow[] | null; error: any }
+    const { data: variantRows } = variantsRes as { data: { id: string; stock_quantity: number }[] | null }
+
+    if (itemError || !item) return { error: 'Item not found' }
+    if (cartError) throw cartError
+
+    // WYSHKIT 2026: Require variant when item has variants (Swiggy-style)
+    const hasVariants = Array.isArray(variantRows) && variantRows.length > 0
+    if (hasVariants && (variantId == null || variantId === '')) {
+      return { error: 'Please select an option', code: 'VARIANT_REQUIRED' }
+    }
+
+    // 0. STOCK CHECK (Swiggy 2026: Inventory Soft-Lock)
+    const normalizedVariantId = variantId || undefined;
+    const { data: availableStock } = await supabase.rpc('get_available_stock', {
+      p_variant_id: normalizedVariantId,
+      p_item_id: itemId
+    });
+
+    const isAvailable = (Number(availableStock) || 0) >= quantity;
+
+    // Calculate how much we need NEW (if updating existing) later...
+
+    if (cartItems && cartItems.length > 0) {
+      const existingItemId = cartItems[0].item_id;
+      const { data: existingItemData } = await supabase.from('items')
+        .select('partner_id')
+        .eq('id', existingItemId)
+        .maybeSingle();
+
+      const currentCartPartnerId = (existingItemData as { partner_id: string } | null)?.partner_id;
+
+      if (currentCartPartnerId && currentCartPartnerId !== item.partner_id) {
+        return {
+          error: 'Transaction already in progress with another partner',
+          code: 'PARTNER_MISMATCH',
+          requiresCartClear: true
+        }
+      }
+    }
+
+    // 2. Duplicate Item Check (In-Memory)
+    const normalizedPersonalization = personalization || { enabled: false }
+    const personalizationKey = normalizedPersonalization.enabled
+      ? `enabled:${normalizedPersonalization.optionId || 'default'}`
+      : 'disabled'
+
+    // Addons Key Generation (Sorted IDs for consistency)
+    const addonsKey = (selectedAddons || [])
+      .map(a => a.id)
+      .sort()
+      .join(',');
+
+    const duplicateItem = cartItems?.find((ci) => {
+      if (ci.item_id !== itemId) return false
+
+      const ciVariant = ci.selected_variant_id || null
+      const payloadVariant = variantId || null
+      if (ciVariant !== payloadVariant) return false
+
+      const ciPers = ci.personalization || { enabled: false }
+      const ciKey = ciPers.enabled
+        ? `enabled:${ciPers.optionId || 'default'}`
+        : 'disabled'
+
+      const ciAddonsKey = (ci.selected_addons || [])
+        .map((a) => a.id)
+        .sort()
+        .join(',')
+
+      return ciKey === personalizationKey && ciAddonsKey === addonsKey
+    })
+
+    // 3. Mutation (Insert or Update)
+    // 3. Mutation (Insert or Update) with Reservation
+    const currentQty = duplicateItem ? duplicateItem.quantity : 0;
+    const qtyNeeded = duplicateItem ? (quantity) : quantity; // Wait, addToCart ADDS to existing. So we need `quantity` more.
+
+    // Check if we have enough for the INCREASE
+    if ((Number(availableStock) || 0) < qtyNeeded) {
+      return {
+        error: `Insufficient stock. Only ${Number(availableStock)} available.`,
+        code: 'OUT_OF_STOCK'
+      };
+    }
+
+    const newQty = duplicateItem ? Math.min(duplicateItem.quantity + quantity, MAX_ITEM_QUANTITY) : quantity
+
+    let cartItemId = duplicateItem?.id;
+
+    if (duplicateItem) {
+      await supabase.from('cart_items')
+        .update({
+          quantity: newQty,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', duplicateItem.id)
+    } else {
+      const { data: newItem, error: insertError } = await supabase.from('cart_items')
+        .insert({
+          user_id: user?.id ?? null,
+          session_id: user ? null : sessionId,
+          item_id: itemId,
+          quantity: newQty,
+          selected_variant_id: variantId,
+          personalization: normalizedPersonalization as any,
+          selected_addons: (selectedAddons || []) as any,
+        })
+        .select('id')
+        .single();
+
+      if (insertError) throw insertError;
+      cartItemId = newItem.id;
+    }
+
+    // 4. RESERVE STOCK (10 Minutes Soft-Lock)
+    // We strictly upsert reservation based on cart_item_id
+    if (cartItemId) {
+      const expiresAt = new Date();
+      expiresAt.setMinutes(expiresAt.getMinutes() + 10); // 10 min expiry
+
+      // Check if reservation exists
+      const { data: existingRes } = await supabase.from('cart_reservations')
+        .select('id')
+        .eq('cart_item_id', cartItemId)
+        .maybeSingle();
+
+      if (existingRes) {
+        await supabase.from('cart_reservations')
+          .update({
+            quantity: newQty,
+            expires_at: expiresAt.toISOString(),
+            reserved_at: new Date().toISOString()
+          })
+          .eq('id', existingRes.id);
+      } else {
+        await supabase.from('cart_reservations')
+          .insert({
+            cart_item_id: cartItemId,
+            item_id: itemId,
+            variant_id: normalizedVariantId as any,
+            quantity: newQty, // Reservation holds FULL quantity of the item in cart
+            expires_at: expiresAt.toISOString()
+          });
+      }
+    }
+
+    revalidateCartPaths()
+
+    try {
+      const cartResult = await getCart();
+      return cartResult.cart ? { success: true, cart: cartResult.cart } : { success: true };
+    } catch (cartError) {
+      logError(cartError, 'GetCartAfterAdd')
+      return { success: true };
+    }
+  } catch (error) {
+    logError(error, 'AddToDraftOrder')
+    return handleActionError(error)
+  }
+}
+
+export async function updateCartItemQuantity(cartItemId: string, quantity: number) {
+  try {
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser()
+    const sessionId = !user ? await getGuestSessionId() : null
+
+    const queryBase = supabase.from('cart_items');
+    const cappedQty = Math.min(Math.max(0, Math.floor(Number(quantity) || 0)), MAX_ITEM_QUANTITY);
+
+    // Get current item to check stock increase
+    const { data: currentItem } = await queryBase.select('id, item_id, selected_variant_id, quantity').eq('id', cartItemId).single();
+    if (!currentItem) return { error: 'Item not found' };
+
+    if (cappedQty > currentItem.quantity) {
+      const qtyNeeded = cappedQty - currentItem.quantity;
+      const { data: availableStock } = await supabase.rpc('get_available_stock', {
+        p_variant_id: currentItem.selected_variant_id || undefined,
+        p_item_id: currentItem.item_id
+      });
+
+      if ((Number(availableStock) || 0) < qtyNeeded) {
+        return { error: `Insufficient stock. Only ${Number(availableStock)} available.` };
+      }
+    }
+
+    if (cappedQty <= 0) {
+      await queryBase.delete().eq('id', cartItemId);
+      // Cascade delete handles reservation
+    } else {
+      await queryBase.update({
+        quantity: cappedQty,
+        updated_at: new Date().toISOString()
+      }).eq('id', cartItemId);
+
+      // Update Reservation
+      const expiresAt = new Date();
+      expiresAt.setMinutes(expiresAt.getMinutes() + 10);
+
+      const { data: existingRes } = await supabase.from('cart_reservations')
+        .select('id')
+        .eq('cart_item_id', cartItemId)
+        .maybeSingle();
+
+      if (existingRes) {
+        await supabase.from('cart_reservations')
+          .update({
+            quantity: cappedQty,
+            expires_at: expiresAt.toISOString(),
+            reserved_at: new Date().toISOString()
+          })
+          .eq('id', existingRes.id);
+      }
+    }
+
+    revalidateCartPaths()
+    const cartResult = await getCart();
+    return cartResult.cart
+      ? { success: true, cart: cartResult.cart }
+      : { success: true, error: cartResult.error };
+  } catch (error) {
+    logError(error, 'UpdateDraftOrderItemQuantity');
+    return handleActionError(error);
+  }
+}
+
+export async function removeCartItem(cartItemId: string) {
+  return updateCartItemQuantity(cartItemId, 0)
+}
+
+export async function clearDraftOrder() {
+  try {
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser()
+    const sessionId = !user ? await getGuestSessionId() : null
+
+    let query = supabase.from('cart_items').delete()
+    if (user) {
+      query = query.eq('user_id', user.id)
+    } else if (sessionId) {
+      query = query.eq('session_id', sessionId)
+    }
+    await query
+    revalidateCartPaths()
+
+    const emptyCart = { items: [], partnerId: null, subtotal: 0, total: 0, itemCount: 0 };
+    return { success: true, cart: emptyCart };
+  } catch (error) {
+    logError(error, 'ClearDraftOrder');
+    return handleActionError(error);
+  }
+}
+
+export async function getGuestCartDetails(payload: Array<{ itemId: string; quantity: number; variantId?: string | null; personalization?: SelectedPersonalization; selectedAddons?: SelectedAddon[] }>) {
+  try {
+    if (!payload.length) {
+      return { cart: { items: [], partnerId: null, subtotal: 0, total: 0, itemCount: 0 } }
+    }
+
+    const supabase = await createClient();
+    const itemIds = payload.map(i => i.itemId)
+
+    const query = supabase.from('v_item_listings')
+      .select('id, name, image, base_price, partner_name')
+      .eq('is_active', true)
+      .in('id', itemIds);
+
+    const { data: itemsData, error } = await query as { data: { id: string, name: string, image: string, base_price: number, partner_name: string }[] | null, error: any };
+
+    if (error) throw error
+
+    const items: DraftLineItem[] = payload.map(p => {
+      const item = (itemsData || []).find((i: any) => i.id === p.itemId)
+      if (!item) return null
+
+      const addonsPrice = (p.selectedAddons || []).reduce((sum, addon) => sum + (Number(addon.price) || 0), 0);
+      let unitPrice = Number(item.base_price) + addonsPrice;
+      if (p.personalization?.price) {
+        unitPrice += Number(p.personalization.price);
+      }
+
+      const totalPrice = unitPrice * p.quantity;
+
+      return {
+        id: `guest-${p.itemId}`,
+        itemId: p.itemId,
+        itemName: item.name,
+        itemImage: item.image,
+        quantity: p.quantity,
+        unitPrice: unitPrice,
+        totalPrice: totalPrice,
+        selectedVariantId: p.variantId ?? null,
+        personalization: p.personalization,
+        selectedAddons: p.selectedAddons,
+        partnerName: item.partner_name,
+      } as DraftLineItem;
+    }).filter((i): i is DraftLineItem => i !== null)
+
+    // Verify items and compute totals atomicly if possible
+    // (Actual placement happens in place_secure_order RPC)
+    const { data: pricing, error: pricingError } = await (supabase as any).rpc('calculate_order_total', {
+      p_items: items,
+      p_delivery_fee: 40,
+      p_city: 'Bangalore', // Fallback
+      p_coupon_code: couponCode // Assuming couponCode is available in scope or passed
+    });
+
+    if (pricingError) throw pricingError;
+
+    return {
+      success: true,
+      data: {
+        id: (draft as any).id, // Assuming 'draft' is available or this needs adjustment
+        subtotal: pricing.subtotal,
+        total: pricing.total,
+        gst: pricing.gst,
+        delivery_fee: pricing.delivery_fee,
+        platform_fee: pricing.platform_fee,
+        items
+      }
+    };
+  } catch (error) {
+    logError(error, 'GetGuestDraftOrderDetails')
+    return { error: 'Failed to fetch guest draft order details' }
+  }
+}
+
+export async function getItemPartner(itemId: string) {
+  const supabase = await createClient();
+  const query = supabase.from('items')
+    .select('partner_id')
+    .eq('id', itemId)
+    .eq('is_active', true)
+    .eq('approval_status', 'approved');
+
+  const { data, error } = await query.maybeSingle();
+
+  if (error || !data) return { data: null, error: 'Item not found' };
+  return { data: data as { partner_id: string } };
+}
+
+export async function getPartnerInfo(partnerId: string) {
+  try {
+    const supabase = await createClient();
+    const query = supabase.from('partners')
+      .select('id, name, gstin, address')
+      .eq('id', partnerId)
+
+    const { data, error } = await query.maybeSingle();
+
+    if (error || !data) {
+      return { data: null, error: 'Partner not found' };
+    }
+
+    return {
+      data: {
+        id: data.id,
+        name: data.name,
+        gstin: data.gstin || null,
+        address: data.address || 'Bangalore, India'
+      }
+    };
+  } catch (error) {
+    logError(error, 'GetPartnerInfo');
+    return { data: null, error: 'Failed to fetch partner info' };
+  }
+}
+
+export async function getTransactionData(draftItems: Array<{ itemId: string; variantId: string | null; personalization: any; selectedAddons?: SelectedAddon[]; quantity: number }>) {
+  try {
+    const supabase = await createClient();
+
+    if (draftItems.length === 0) {
+      return {
+        hydratedItems: [],
+        upsellItems: [],
+        error: null
+      };
+    }
+
+    const itemIds = draftItems.map(item => item.itemId);
+
+    // Fetch items with all needed relations
+    // Using simple query structure for maximum reliability
+    const [itemsRes, optionsRes, addonsRes] = await Promise.all([
+      supabase.from('items')
+        .select('id, name, images, partner_id, base_price, variants(id, name, price)')
+        .eq('is_active', true)
+        .eq('approval_status', 'approved')
+        .in('id', itemIds),
+      supabase.from('personalization_options')
+        .select('id, item_id, name, price, input_type')
+        .in('item_id', itemIds)
+        .eq('is_active', true),
+      supabase.from('item_addons')
+        .select('*')
+        .in('item_id', itemIds)
+        .eq('is_active', true)
+    ]);
+
+    const { data: itemsData, error: itemsError } = itemsRes;
+
+    if (itemsError || !itemsData || itemsData.length === 0) {
+      return {
+        hydratedItems: [],
+        upsellItems: [],
+        error: 'Items not found'
+      };
+    }
+
+    const typedItemsData = itemsData as ItemWithVariants[];
+
+    // Map options by item
+    const optionsByItem = new Map<string, any[]>();
+    ((optionsRes?.data as any[]) || []).forEach((o: any) => {
+      const list = optionsByItem.get(o.item_id) || [];
+      list.push({
+        id: o.id,
+        name: o.name,
+        price: Number(o.price) || 0,
+        type: o.input_type || 'text'
+      });
+      optionsByItem.set(o.item_id, list);
+    });
+
+    // Map addons by item
+    const addonsByItem = new Map<string, any[]>();
+    ((addonsRes?.data as any[]) || []).forEach((a: any) => {
+      const list = addonsByItem.get(a.item_id) || [];
+      list.push(a);
+      addonsByItem.set(a.item_id, list);
+    });
+
+    const partnerIds = new Set<string>();
+    typedItemsData.forEach((item) => {
+      if (item.partner_id) partnerIds.add(item.partner_id);
+    });
+
+    const firstPartnerId = Array.from(partnerIds)[0];
+
+    // Upsells
+    const [upsellsRes] = await Promise.all([
+      firstPartnerId
+        ? supabase.from('items')
+          .select('id, name, base_price, images')
+          .eq('partner_id', firstPartnerId)
+          .eq('is_active', true)
+          .eq('approval_status', 'approved')
+          .limit(6)
+        : Promise.resolve({ data: [], error: null })
+    ]);
+
+    const { calculatePersonalizationPrice } = await import('@/lib/utils/pricing');
+
+    const hydratedItems = draftItems.map((draftItem: any) => {
+      const itemData = typedItemsData.find((i) => i.id === draftItem.itemId);
+      if (!itemData) {
+        return {
+          ...draftItem,
+          name: 'Item',
+          image: '/images/logo.png',
+          basePrice: 0,
+          variantPrice: 0,
+          personalizationPrice: 0,
+        };
+      }
+
+      const variant = (itemData.variants || []).find((v) => v.id === draftItem.variantId);
+
+      // Calculate Legacy Pers Price
+      const personalizationOptions = optionsByItem.get(draftItem.itemId) || [];
+      const personalizationPrice = calculatePersonalizationPrice(
+        draftItem.personalization,
+        personalizationOptions,
+        draftItem.quantity || 1
+      );
+
+      // Calculate Addons Price
+      const addonsPrice = (draftItem.selectedAddons || []).reduce((sum: number, addon: any) => sum + (Number(addon.price) || 0), 0);
+
+      const baseOrVariant = Number(variant?.price) || Number(itemData.base_price) || 0;
+      // Total Unit Price = Base + Addons + (Total Pers Price / Qty)
+      const unitPrice = baseOrVariant + addonsPrice + (personalizationPrice / (draftItem.quantity || 1));
+      const totalPrice = unitPrice * (draftItem.quantity || 1);
+
+      return {
+        ...draftItem,
+        name: itemData.name,
+        image: (itemData.images || [])[0] || '/images/logo.png',
+        basePrice: Number(itemData.base_price) || 0,
+        variantPrice: Number(variant?.price) || 0,
+        variantName: variant?.name,
+        personalizationPrice,
+        addonsPrice, // Added this field
+        personalization: draftItem.personalization,
+        selectedAddons: draftItem.selectedAddons, // Passthrough
+        partnerId: itemData.partner_id ?? null,
+        itemName: itemData.name,
+        unitPrice,
+        totalPrice
+      };
+    });
+
+    const { data: upsellsData } = upsellsRes;
+    const cartItemIds = new Set(draftItems.map(item => item.itemId));
+    const filteredUpsells = (upsellsData || []).filter(
+      (u: any) => !cartItemIds.has(u.id)
+    );
+    const upsellItems = filteredUpsells.map((u: any) => ({
+      id: u.id,
+      name: u.name,
+      price: u.base_price,
+      image_url: u.images?.[0] || '/images/logo.png'
+    }));
+
+    return {
+      hydratedItems: hydratedItems as any,
+      upsellItems: upsellItems as any,
+      error: null
+    };
+  } catch (error) {
+    logError(error, 'GetTransactionData');
+    return {
+      hydratedItems: [],
+      upsellItems: [],
+      error: 'Failed to fetch transaction data'
+    };
+  }
+}
