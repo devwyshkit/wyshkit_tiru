@@ -27,3 +27,6 @@ Required environment variables: Supabase URL and key, Razorpay (or payment) keys
 ## Production and dummy data
 
 See **[docs/DUMMY_DATA_CLEANUP.md](docs/DUMMY_DATA_CLEANUP.md)** for production prep, env flags, and removing seed/dummy data.
+
+
+final version of the wyshkit
