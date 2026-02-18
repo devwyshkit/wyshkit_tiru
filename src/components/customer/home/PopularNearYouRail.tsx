@@ -26,16 +26,16 @@ export function PopularNearYouRail({ items }: PopularNearYouRailProps) {
 
             <div className="relative z-10 max-w-[1440px] mx-auto">
                 <div className="flex items-center justify-between mb-10">
-                    <div className="space-y-1">
-                        <h2 className="text-2xl md:text-4xl font-black text-foreground uppercase tracking-tighter leading-none italic">
+                    <div className="space-y-1.5">
+                        <h2 className="text-3xl md:text-5xl font-black text-zinc-950 uppercase tracking-tighter leading-none italic skew-x-[-4deg]">
                             Popular <span className="text-[#D91B24]">Near You</span>
                         </h2>
                         <div className="flex items-center gap-3">
-                            <Badge variant="outline" className="bg-rose-50 border-rose-100 text-[#D91B24] rounded-full py-1 px-4 flex items-center gap-2 border-none shadow-sm shadow-rose-900/5">
-                                <span className="size-1.5 bg-[#D91B24] rounded-full animate-ping" />
-                                <span className="text-[10px] font-black uppercase tracking-[0.2em] leading-none">Trending Neighborhood Gifts</span>
-                            </Badge>
-                            <span className="text-[10px] font-black text-zinc-300 uppercase tracking-widest">Wyshkit 2026 Verified</span>
+                            <div className="flex items-center gap-1.5 bg-[#D91B24] px-2.5 py-1 rounded-sm shadow-sm">
+                                <span className="size-1 bg-white rounded-full animate-ping" />
+                                <span className="text-[9px] font-black text-white uppercase tracking-[0.2em] leading-none">Live Trends</span>
+                            </div>
+                            <span className="text-[10px] font-black text-zinc-300 uppercase tracking-widest px-2 border-l border-zinc-200">Neighborhood Favorites</span>
                         </div>
                     </div>
                 </div>

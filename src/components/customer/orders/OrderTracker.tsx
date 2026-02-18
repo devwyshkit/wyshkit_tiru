@@ -71,6 +71,25 @@ export function OrderTracker({ orderId, isSheet }: OrderTrackerProps) {
   const [proactivePersonalizationOpen, setProactivePersonalizationOpen] = useState(false);
   const [hasAutoOpened, setHasAutoOpened] = useState(false);
 
+  // 1. All Hooks must be at the top level, before any early returns
+  const personalizedItemsPending = order?.order_items?.filter((item: any) => {
+    if (!item.is_personalized) return false;
+    const s = (item.status || 'pending').toLowerCase();
+    const blocked = ['preview_ready', 'approved', 'in_production', 'packed', 'shipped', 'delivered', 'cancelled'];
+    return !blocked.includes(s);
+  }) || [];
+
+  // WYSHKIT 2026: Proactive Identity Push
+  useEffect(() => {
+    if (order && showSuccess && personalizedItemsPending.length > 0 && !hasAutoOpened) {
+      const timer = setTimeout(() => {
+        setProactivePersonalizationOpen(true);
+        setHasAutoOpened(true);
+      }, 1500);
+      return () => clearTimeout(timer);
+    }
+  }, [order, showSuccess, personalizedItemsPending.length, hasAutoOpened]);
+
   useEffect(() => {
     if (showSuccess) {
       triggerHaptic(HapticPattern.SUCCESS);
@@ -111,18 +130,6 @@ export function OrderTracker({ orderId, isSheet }: OrderTrackerProps) {
     type: e.type
   }));
 
-  // Personalization State
-  // Personalization State - inclusive of various initial statuses
-  const personalizedItemsPending = order.order_items?.filter((item: any) => {
-    if (!item.is_personalized) return false;
-    // blocked statuses
-    const s = (item.status || 'pending').toLowerCase();
-    if (s === 'preview_ready' || s === 'approved' || s === 'in_production' || s === 'packed' || s === 'shipped' || s === 'delivered' || s === 'cancelled') return false;
-
-    // Explicitly allow pending/placed/awaiting_details/confirmed/paid
-    return true;
-  }) || [];
-
   const itemPreviews = (previews || []).reduce((acc: any, p: any) => {
     if (p.order_item_id) {
       acc[p.order_item_id] = p;
@@ -133,21 +140,7 @@ export function OrderTracker({ orderId, isSheet }: OrderTrackerProps) {
   const handlePersonalizationSubmitted = () => {
     toast.success("Details shared with partner!");
     setProactivePersonalizationOpen(false);
-    // Real-time hook picks up the update
   };
-
-  // WYSHKIT 2026: Proactive Identity Push
-  // If we land via success and have pending items, open the sheet immediately
-  useEffect(() => {
-    if (showSuccess && personalizedItemsPending.length > 0 && !hasAutoOpened) {
-      // Delay slightly to allow success celebration to breathe
-      const timer = setTimeout(() => {
-        setProactivePersonalizationOpen(true);
-        setHasAutoOpened(true);
-      }, 1500);
-      return () => clearTimeout(timer);
-    }
-  }, [showSuccess, personalizedItemsPending.length, hasAutoOpened]);
 
 
   return (
