@@ -59,8 +59,21 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: result.error }, { status: 500 });
       }
 
+      // WYSHKIT 2026: Trigger Financial Settlements & Rewards on Delivery
+      if (targetStatus === ORDER_STATUS.DELIVERED) {
+        try {
+          const { triggerPostDeliveryEvents } = await import('@/lib/actions/settlement');
+          await triggerPostDeliveryEvents(client_order_id);
+          logger.info('Shadowfax Webhook: Post-delivery business logic triggered', { client_order_id });
+        } catch (postDeliveryError) {
+          logger.error('Shadowfax Webhook: Post-delivery trigger failed', postDeliveryError, { client_order_id });
+          // We don't return 500 here because the status update already succeeded.
+        }
+      }
+
       logger.info('Shadowfax Webhook: Status updated successfully', { client_order_id, targetStatus, awb_number });
     }
+
 
     return NextResponse.json({ success: true });
   } catch (error) {

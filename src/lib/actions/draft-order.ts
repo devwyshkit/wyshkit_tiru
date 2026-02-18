@@ -72,137 +72,136 @@ export type GetCartResult = {
 export async function getCart(): Promise<GetCartResult> {
   try {
     const supabase = await createClient();
-    const { data: { user } } = await supabase.auth.getUser()
-    const sessionId = !user ? await getGuestSessionIdReadOnly() : null
 
-    if (!user && !sessionId) {
-      return { cart: { items: [], partnerId: null, subtotal: 0, total: 0, itemCount: 0 }, cartIdentity: 'empty', guestSessionId: null }
+    // WYSHKIT 2026: Get Cart Identity (Auth or Session)
+    const { data: { user } } = await supabase.auth.getUser()
+    const guestSessionId = !user ? await getGuestSessionId() : null
+
+    if (!user && !guestSessionId) {
+      return {
+        cart: { items: [], partnerId: null, subtotal: 0, total: 0, itemCount: 0 },
+        cartIdentity: 'empty',
+        guestSessionId: null
+      }
     }
 
-    const cartIdentity = user?.id ?? sessionId ?? 'empty'
-    const guestSessionId = user ? undefined : sessionId
+    const cartIdentity = user?.id ?? guestSessionId ?? 'empty'
 
-    // WYSHKIT 2026: v_cart_items view
-    // Note: The view needs selected_addons column added too if using view
-    // Or fetch directly from cart_items joined with items
-    // For now, let's assume v_cart_items is updated or we use direct query if v_cart_items doesn't have it
-    // Actually, v_cart_items is a view. If I alter table, view might not auto-update unless recreated.
-    // For robustness, I'll switch to direct join query which is safer after schema change
+    // Fetch unified cart rows from v_active_cart_totals
+    const { data: totalsData, error: totalsError } = await supabase
+      .from('v_active_cart_totals')
+      .select('pricing')
+      .or(user ? `user_id.eq.${user.id}` : `session_id.eq.${guestSessionId}`)
+      .maybeSingle();
 
-    let query = supabase.from('cart_items')
-      .select(
-        `
-        id, 
-        item_id, 
-        quantity, 
-        selected_variant_id, 
-        personalization, 
+    if (totalsError) {
+      logError(totalsError, 'GetCartTotals');
+    }
+
+    // Fetch individual cart items for detailed listing
+    let itemsQuery = supabase
+      .from('cart_items')
+      .select(`
+        id,
+        item_id,
+        quantity,
+        selected_variant_id,
+        personalization,
         selected_addons,
         items:items (
-          id, 
-          name, 
-          base_price, 
-          images, 
+          id,
+          name,
+          base_price,
+          images,
           partner_id,
-          partners:partners (name, latitude, longitude)
+          partners:partners (
+            name,
+            latitude,
+            longitude
+          )
         ),
-        variants:variants (price)
-      `
-      )
-      .order('id', { ascending: true });
+        variants:variants (
+          name,
+          price
+        )
+      `)
+      .order('id');
 
     if (user) {
-      query = query.eq('user_id', user.id);
+      itemsQuery = itemsQuery.eq('user_id', user.id);
     } else {
-      query = query.eq('session_id', sessionId!);
+      itemsQuery = itemsQuery.eq('session_id', guestSessionId!);
     }
 
-    const { data: cartItemsRaw, error } = await query;
+    const { data: itemRows, error: itemsError } = await itemsQuery;
 
-    if (error) throw error;
-
-    // Transform raw data to DraftLineItem (CartItemRawRow shapes the joined result)
-    const cartItems: CartItemView[] = ((cartItemsRaw || []) as CartItemRawRow[]).map((ci) => ({
-      id: ci.id,
-      itemId: ci.item_id,
-      itemName: ci.items?.name || 'Item',
-      itemImage: (ci.items?.images && ci.items.images[0]) || '/images/logo.png',
-      quantity: ci.quantity,
-      variantPrice: ci.variants?.price || 0,
-      basePrice: ci.items?.base_price || 0,
-      selectedVariantId: ci.selected_variant_id,
-      personalization: ci.personalization,
-      selectedAddons: ci.selected_addons,
-      partnerName: ci.items?.partners?.name || 'Store',
-      partnerId: ci.items?.partner_id ?? null,
-      partnerLatitude: (ci.items?.partners as any)?.latitude ?? null,
-      partnerLongitude: (ci.items?.partners as any)?.longitude ?? null,
-      userId: ci.user_id ?? null,
-      sessionId: ci.session_id ?? null,
-    }));
-
-    const partnerIds = new Set((cartItems || []).map((item) => item.partnerId).filter(Boolean))
-    const partnerId = partnerIds.size === 1 ? Array.from(partnerIds)[0] as string : null
-
-    // 2. Fetch Pricing from Server-Side View (Atomic Truth)
-    const { data: totalsData } = await supabase.from('v_active_cart_totals')
-      .select('pricing')
-      .or(user ? `user_id.eq.${user.id}` : `session_id.eq.${sessionId}`)
-      .maybeSingle();
+    if (itemsError) {
+      logError(itemsError, 'GetCartItems');
+    }
 
     const dbPricing = (totalsData?.pricing as any) || { subtotal: 0, total: 0 };
 
-    // 3. Map Items
-    const items: DraftLineItem[] = (cartItems || []).map((ci) => {
-      const quantity = Number(ci.quantity) || 1;
-      const unitPrice = Number(ci.variantPrice || ci.basePrice) || 0;
-      // Note: For individual line item display, we show base+variant. 
-      // Addons/Personalization are aggregated in the total view.
+    // Map DB items to frontend MappedCartItem objects
+    const items: DraftLineItem[] = (itemRows as any[] || []).map(row => {
+      const itemBasePrice = Number(row?.items?.base_price || 0);
+      const variantPrice = Number(row?.variants?.price || 0);
+      const unitPrice = variantPrice || itemBasePrice;
+      const quantity = Number(row.quantity) || 1;
+
+      // Extract Addons Price
+      const selectedAddons = row.selected_addons || [];
+      const addonsPrice = (selectedAddons as any[]).reduce((sum, a) => sum + (Number(a.price) || 0), 0);
+
+      // Extract Personalization Price
+      const personalization = row.personalization || undefined;
+      const personalizationPrice = (personalization?.price || 0);
 
       return {
-        id: ci.id,
-        itemId: ci.itemId,
-        itemName: ci.itemName,
-        itemImage: ci.itemImage,
+        id: row.id,
+        itemId: row.item_id,
+        itemName: row?.items?.name || 'Product',
+        itemImage: row?.items?.images?.[0] || '/placeholder.png',
         quantity: quantity,
         unitPrice: unitPrice,
-        totalPrice: unitPrice * quantity,
-        selectedVariantId: ci.selectedVariantId,
-        personalization: ci.personalization || undefined,
-        selectedAddons: ci.selectedAddons || undefined,
-        partnerName: ci.partnerName || 'Store',
+        totalPrice: (unitPrice + addonsPrice) * quantity + personalizationPrice,
+        selectedVariantId: row.selected_variant_id,
+        personalization: personalization,
+        selectedAddons: selectedAddons,
+        partnerName: row?.items?.partners?.name || 'Store',
+        partnerId: row?.items?.partner_id,
+        // Hydration
+        basePrice: itemBasePrice,
+        variantPrice: variantPrice,
+        variantName: row?.variants?.name,
+        personalizationPrice,
+        addonsPrice
       };
     });
 
-    const subtotal = Number(dbPricing.subtotal) || 0;
-    const total = Number(dbPricing.total) || 0;
-    const itemCount = items.reduce((sum, item) => sum + (Number(item.quantity) || 0), 0);
+    const partnerIds = new Set(items.map(item => item.partnerId).filter(Boolean));
+    const partnerId = partnerIds.size === 1 ? Array.from(partnerIds)[0] as string : null;
+
+    const cart: DraftTransaction = {
+      items,
+      partnerId: partnerId as string | null,
+      subtotal: Number(dbPricing.subtotal) || 0,
+      total: Number(dbPricing.total) || 0,
+      itemCount: items.reduce((sum, item) => sum + item.quantity, 0),
+    };
 
     return {
-      cart: {
-        items,
-        partnerId,
-        subtotal,
-        total,
-        itemCount,
-      },
+      cart,
       cartIdentity,
-      guestSessionId,
-    }
+      guestSessionId
+    };
   } catch (error) {
-    logError(error, 'GetDraftOrder')
+    logError(error, 'GetCart');
     return {
-      cart: {
-        items: [],
-        partnerId: null,
-        subtotal: 0,
-        total: 0,
-        itemCount: 0,
-      },
+      cart: { items: [], partnerId: null, subtotal: 0, total: 0, itemCount: 0 },
       error: error instanceof Error ? error.message : 'Failed to fetch cart',
-      cartIdentity: 'empty',
-      guestSessionId: null,
-    }
+      cartIdentity: 'error-fallback',
+      guestSessionId: null
+    };
   }
 }
 
@@ -289,16 +288,54 @@ export async function addToCart(payload: {
     }
 
     // 0. STOCK CHECK (Swiggy 2026: Inventory Soft-Lock)
-    const normalizedVariantId = variantId || undefined;
-    const { data: availableStock } = await supabase.rpc('get_available_stock', {
-      p_variant_id: normalizedVariantId,
-      p_item_id: itemId
-    });
+    // 0. STOCK CHECK (Swiggy 2026: Direct Inventory Check - Zero Reinvention)
+    const normalizedVariantId = (variantId as string) || '';
+
+    // Fetch fresh stock directly
+    const { data: stockData, error: stockError } = await supabase
+      .from(hasVariants ? 'variants' : 'items')
+      .select('stock_quantity')
+      .eq('id', hasVariants ? normalizedVariantId : itemId)
+      .single();
+
+    if (stockError || !stockData) {
+      return { error: 'Stock information unavailable', code: 'STOCK_ERROR' };
+    }
+
+    // Get active reservations for this item/variant (excluding current user's cart if any)
+    const { count: reservedCount } = await supabase
+      .from('cart_reservations')
+      .select('*', { count: 'exact', head: true })
+      .eq(hasVariants ? 'variant_id' : 'item_id', hasVariants ? normalizedVariantId : itemId)
+      .gt('expires_at', new Date().toISOString());
+
+    const availableStock = (stockData.stock_quantity || 0) - (reservedCount || 0);
 
     const isAvailable = (Number(availableStock) || 0) >= quantity;
 
-    // Calculate how much we need NEW (if updating existing) later...
+    if (!isAvailable) {
+      // Fetch item/variant name for better error message
+      const { data: itemData } = await supabase
+        .from('items')
+        .select('name')
+        .eq('id', itemId)
+        .single();
 
+      let displayName = itemData?.name || 'Item';
+      if (variantId) {
+        const { data: vData } = await supabase
+          .from('variants')
+          .select('name')
+          .eq('id', variantId)
+          .single();
+        if (vData?.name) displayName += ` (${vData.name})`;
+      }
+
+      return {
+        error: `Insufficient stock for "${displayName}". Only ${Number(availableStock)} available.`,
+        code: 'OUT_OF_STOCK'
+      };
+    }
     if (cartItems && cartItems.length > 0) {
       const existingItemId = cartItems[0].item_id;
       const { data: existingItemData } = await supabase.from('items')
@@ -453,13 +490,39 @@ export async function updateCartItemQuantity(cartItemId: string, quantity: numbe
 
     if (cappedQty > currentItem.quantity) {
       const qtyNeeded = cappedQty - currentItem.quantity;
-      const { data: availableStock } = await supabase.rpc('get_available_stock', {
-        p_variant_id: currentItem.selected_variant_id || undefined,
-        p_item_id: currentItem.item_id
-      });
+      // Direct Stock Check (Zero Reinvention)
+      const { data: stockData } = await supabase
+        .from(currentItem.selected_variant_id ? 'variants' : 'items')
+        .select('stock_quantity')
+        .eq('id', currentItem.selected_variant_id || currentItem.item_id)
+        .single();
+
+      const { count: reservedCount } = await supabase
+        .from('cart_reservations')
+        .select('*', { count: 'exact', head: true })
+        .eq(currentItem.selected_variant_id ? 'variant_id' : 'item_id', currentItem.selected_variant_id || currentItem.item_id)
+        .gt('expires_at', new Date().toISOString());
+
+      const availableStock = (stockData?.stock_quantity || 0) - (reservedCount || 0);
+
 
       if ((Number(availableStock) || 0) < qtyNeeded) {
-        return { error: `Insufficient stock. Only ${Number(availableStock)} available.` };
+        // Enrich error message
+        const { data: itemData } = await supabase
+          .from('items')
+          .select('name')
+          .eq('id', currentItem.item_id)
+          .single();
+        let displayName = itemData?.name || 'Item';
+        if (currentItem.selected_variant_id) {
+          const { data: vData } = await supabase
+            .from('variants')
+            .select('name')
+            .eq('id', currentItem.selected_variant_id)
+            .single();
+          if (vData?.name) displayName += ` (${vData.name})`;
+        }
+        return { error: `Insufficient stock for "${displayName}". Only ${Number(availableStock)} more available.` };
       }
     }
 
@@ -507,6 +570,7 @@ export async function removeCartItem(cartItemId: string) {
   return updateCartItemQuantity(cartItemId, 0)
 }
 
+
 export async function clearDraftOrder() {
   try {
     const supabase = await createClient();
@@ -520,6 +584,15 @@ export async function clearDraftOrder() {
       query = query.eq('session_id', sessionId)
     }
     await query
+
+    // WYSHKIT 2026: Clear checkout state cookies
+    const { cookies } = await import('next/headers')
+    const cookieStore = await cookies()
+    cookieStore.delete('applied_coupon')
+    cookieStore.delete('use_wallet')
+    cookieStore.delete('selected_address_id')
+    cookieStore.delete('gstin')
+
     revalidateCartPaths()
 
     const emptyCart = { items: [], partnerId: null, subtotal: 0, total: 0, itemCount: 0 };
@@ -552,13 +625,14 @@ export async function getGuestCartDetails(payload: Array<{ itemId: string; quant
       const item = (itemsData || []).find((i: any) => i.id === p.itemId)
       if (!item) return null
 
-      const addonsPrice = (p.selectedAddons || []).reduce((sum, addon) => sum + (Number(addon.price) || 0), 0);
-      let unitPrice = Number(item.base_price) + addonsPrice;
-      if (p.personalization?.price) {
-        unitPrice += Number(p.personalization.price);
-      }
+      const basePrice = Number(item.base_price) || 0;
+      const selectedAddons = p.selectedAddons || [];
+      const addonsPrice = (selectedAddons).reduce((sum, addon) => sum + (Number(addon.price) || 0), 0);
+      const personalizationPrice = (p.personalization?.price || 0);
 
-      const totalPrice = unitPrice * p.quantity;
+      // Unit Price for UI (Base + Addons + (Pers / Qty))
+      // Consistent with getCart and getTransactionData
+      const unitPrice = basePrice + addonsPrice;
 
       return {
         id: `guest-${p.itemId}`,
@@ -567,29 +641,44 @@ export async function getGuestCartDetails(payload: Array<{ itemId: string; quant
         itemImage: item.image,
         quantity: p.quantity,
         unitPrice: unitPrice,
-        totalPrice: totalPrice,
+        totalPrice: (unitPrice + addonsPrice) * p.quantity + personalizationPrice,
         selectedVariantId: p.variantId ?? null,
         personalization: p.personalization,
-        selectedAddons: p.selectedAddons,
+        selectedAddons: selectedAddons,
         partnerName: item.partner_name,
+        // Hydration
+        basePrice: basePrice,
+        addonsPrice: addonsPrice,
+        personalizationPrice: personalizationPrice
       } as DraftLineItem;
     }).filter((i): i is DraftLineItem => i !== null)
 
     // Verify items and compute totals atomicly if possible
     // (Actual placement happens in place_secure_order RPC)
     const { data: pricing, error: pricingError } = await (supabase as any).rpc('calculate_order_total', {
-      p_items: items,
-      p_delivery_fee: 40,
-      p_city: 'Bangalore', // Fallback
-      p_coupon_code: couponCode // Assuming couponCode is available in scope or passed
+      p_cart_items: items.map(it => ({
+        itemId: it.itemId,
+        quantity: it.quantity,
+        variantId: it.selectedVariantId,
+        hasPersonalization: !!it.personalization?.enabled,
+        selectedAddons: it.selectedAddons
+      })),
+      p_delivery_fee_override: 40,
+      p_distance_km: null,
+      p_coupon_code: null,
+      p_address_id: null,
+      p_use_wallet: false,
+      p_user_id: null
     });
+
 
     if (pricingError) throw pricingError;
 
     return {
       success: true,
       data: {
-        id: (draft as any).id, // Assuming 'draft' is available or this needs adjustment
+        id: 'guest', // Placeholder for guest
+
         subtotal: pricing.subtotal,
         total: pricing.total,
         gst: pricing.gst,
@@ -622,8 +711,9 @@ export async function getPartnerInfo(partnerId: string) {
   try {
     const supabase = await createClient();
     const query = supabase.from('partners')
-      .select('id, name, gstin, address')
+      .select('id, name, gstin, city') // Use city as address is missing
       .eq('id', partnerId)
+
 
     const { data, error } = await query.maybeSingle();
 
@@ -636,7 +726,8 @@ export async function getPartnerInfo(partnerId: string) {
         id: data.id,
         name: data.name,
         gstin: data.gstin || null,
-        address: data.address || 'Bangalore, India'
+        address: data.city || 'Bangalore, India'
+
       }
     };
   } catch (error) {
@@ -732,21 +823,20 @@ export async function getTransactionData(draftItems: Array<{ itemId: string; var
     const { calculatePersonalizationPrice } = await import('@/lib/utils/pricing');
 
     const hydratedItems = draftItems.map((draftItem: any) => {
+      // Find the corresponding item from the already hydrated cart if available
+      // Actually, getTransactionData is used in checkout.ts which already has 'cart'
+      // But we need to ensure consistency.
+
       const itemData = typedItemsData.find((i) => i.id === draftItem.itemId);
       if (!itemData) {
-        return {
-          ...draftItem,
-          name: 'Item',
-          image: '/images/logo.png',
-          basePrice: 0,
-          variantPrice: 0,
-          personalizationPrice: 0,
-        };
+        return { ...draftItem, name: 'Item', image: '/images/logo.png' };
       }
 
       const variant = (itemData.variants || []).find((v) => v.id === draftItem.variantId);
+      const itemBasePrice = Number(itemData.base_price) || 0;
+      const variantPrice = Number(variant?.price) || 0;
 
-      // Calculate Legacy Pers Price
+      // Calculate Legacy Pers Price (Fallback if not in draftItem)
       const personalizationOptions = optionsByItem.get(draftItem.itemId) || [];
       const personalizationPrice = calculatePersonalizationPrice(
         draftItem.personalization,
@@ -757,22 +847,20 @@ export async function getTransactionData(draftItems: Array<{ itemId: string; var
       // Calculate Addons Price
       const addonsPrice = (draftItem.selectedAddons || []).reduce((sum: number, addon: any) => sum + (Number(addon.price) || 0), 0);
 
-      const baseOrVariant = Number(variant?.price) || Number(itemData.base_price) || 0;
-      // Total Unit Price = Base + Addons + (Total Pers Price / Qty)
-      const unitPrice = baseOrVariant + addonsPrice + (personalizationPrice / (draftItem.quantity || 1));
+      const baseUnitPrice = variant ? variantPrice : itemBasePrice;
+      const unitPrice = baseUnitPrice + addonsPrice + (personalizationPrice / (draftItem.quantity || 1));
       const totalPrice = unitPrice * (draftItem.quantity || 1);
 
       return {
         ...draftItem,
+        id: draftItem.id || `draft-${draftItem.itemId}`,
         name: itemData.name,
         image: (itemData.images || [])[0] || '/images/logo.png',
-        basePrice: Number(itemData.base_price) || 0,
-        variantPrice: Number(variant?.price) || 0,
+        basePrice: itemBasePrice,
+        variantPrice: variantPrice,
         variantName: variant?.name,
         personalizationPrice,
-        addonsPrice, // Added this field
-        personalization: draftItem.personalization,
-        selectedAddons: draftItem.selectedAddons, // Passthrough
+        addonsPrice,
         partnerId: itemData.partner_id ?? null,
         itemName: itemData.name,
         unitPrice,

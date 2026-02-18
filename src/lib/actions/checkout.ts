@@ -29,6 +29,8 @@ export interface CheckoutData {
         email?: string
         name?: string
     } | null
+    partnerName?: string
+    partnerCity?: string
     error?: string
 }
 
@@ -50,6 +52,8 @@ export const getCheckoutData = cache(async (): Promise<CheckoutData> => {
         const cookieStore = await cookies()
         const appliedCouponCode = cookieStore.get('applied_coupon')?.value
         const useWallet = cookieStore.get('use_wallet')?.value === 'true'
+        const selectedAddressId = cookieStore.get('selected_address_id')?.value
+        const gstin = cookieStore.get('gstin')?.value
 
         // 1. Fetch base data in parallel
         const supabase = await (await import('@/lib/supabase/server')).createClient();
@@ -103,9 +107,31 @@ export const getCheckoutData = cache(async (): Promise<CheckoutData> => {
             selectedAddons: item.selectedAddons || []
         }))
 
-        const defaultAddress = addresses.find(a => a.is_default) || addresses[0]
+        // WYSHKIT 2026: Prioritize the manually selected address from cookie
+        let defaultAddress = selectedAddressId
+            ? addresses.find(a => a.id === selectedAddressId) || addresses.find(a => a.is_default) || addresses[0]
+            : addresses.find(a => a.is_default) || addresses[0]
 
-        // WYSHKIT 2026: If no address exists, we skip RPC but return valid structure
+        // WYSHKIT 2026: Guest Fallback Logic (Zero-Return Disconnect Fix)
+        // If no saved address, try to create a "Virtual Address" from homepage location cookies.
+        if (!defaultAddress) {
+            const guestLat = cookieStore.get('wyshkit_lat')?.value
+            const guestLng = cookieStore.get('wyshkit_lng')?.value
+            const guestName = cookieStore.get('wyshkit_location_name')?.value
+
+            if (guestLat && guestLng) {
+                defaultAddress = {
+                    id: 'guest_location',
+                    name: guestName || 'Selected Location',
+                    address_line1: 'Current Location',
+                    latitude: parseFloat(guestLat),
+                    longitude: parseFloat(guestLng),
+                    is_default: false
+                } as Address
+            }
+        }
+
+        // WYSHKIT 2026: If no address exists (even virtual), we skip RPC but return valid structure
         if (!defaultAddress) {
             return {
                 items: hydratedItems,
@@ -153,7 +179,8 @@ export const getCheckoutData = cache(async (): Promise<CheckoutData> => {
                 appliedCoupon: null,
                 useWallet: useWallet,
                 user: user ? { id: user.id, email: user.email } : null,
-                error: pricingRes.error || 'Pricing calculation failed'
+                error: pricingRes.error || 'Pricing calculation failed',
+                gstin: gstin || null,
             }
         }
 
@@ -175,7 +202,10 @@ export const getCheckoutData = cache(async (): Promise<CheckoutData> => {
             pricing: pricing,
             appliedCoupon: appliedCoupon,
             useWallet: useWallet,
+            gstin: gstin || null,
             user: user ? { id: user.id, email: user.email } : null,
+            partnerName: hydratedItems[0]?.partnerName || (cartRes.cart as any)?.items?.[0]?.partnerName,
+            partnerCity: (cartRes.cart as any)?.items?.[0]?.partnerCity || 'Bangalore',
         }
 
     } catch (error) {
@@ -213,6 +243,17 @@ export async function applyCouponAction(code: string | null) {
 export async function toggleWalletAction(use: boolean) {
     const cookieStore = await cookies()
     cookieStore.set('use_wallet', String(use), { maxAge: 60 * 60 })
+    revalidatePath('/checkout')
+    return { success: true }
+}
+
+export async function setSelectedAddressAction(addressId: string | null) {
+    const cookieStore = await cookies()
+    if (addressId) {
+        cookieStore.set('selected_address_id', addressId, { maxAge: 60 * 60 })
+    } else {
+        cookieStore.delete('selected_address_id')
+    }
     revalidatePath('/checkout')
     return { success: true }
 }

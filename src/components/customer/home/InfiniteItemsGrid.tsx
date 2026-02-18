@@ -11,8 +11,6 @@ interface InfiniteItemsGridProps {
     category: string | null;
     categoryName?: string | null;
     startOffset?: number;
-    /** Swiggy pattern: after add, navigate to store with item sheet open */
-    navigateToStoreOnAdd?: boolean;
 }
 
 export function InfiniteItemsGrid({
@@ -20,7 +18,6 @@ export function InfiniteItemsGrid({
     category,
     categoryName,
     startOffset = 0,
-    navigateToStoreOnAdd = false
 }: InfiniteItemsGridProps) {
     const [items, setItems] = useState(initialItems);
     const [hasMore, setHasMore] = useState(true); // Default to true if used in discovery flow
@@ -90,7 +87,6 @@ export function InfiniteItemsGrid({
                 <ItemCard
                     key={`${item.id}-${index}`}
                     item={item}
-                    navigateToStoreOnAdd={navigateToStoreOnAdd}
                 />
             ))}
 

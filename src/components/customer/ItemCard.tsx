@@ -1,25 +1,28 @@
 "use client";
 
-import React, { useMemo, useCallback } from 'react';
+import React, { useMemo } from 'react';
 import Image from 'next/image';
 import { Star, Sparkles, Flame } from 'lucide-react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
 import { cn } from '@/lib/utils';
 import { AddToCartButton } from './AddToCartButton';
 import { useCart } from '@/components/customer/CartProvider';
+import { triggerHaptic, HapticPattern } from '@/lib/utils/haptic';
+import { calculateTravelTime } from '@/lib/utils/distance';
+import { formatCurrency } from '@/lib/utils/pricing';
+import { hasItemPersonalization } from '@/lib/utils/personalization';
+
+import { ItemListItem } from '@/lib/types/item';
 
 const FALLBACK_IMAGE = '/images/logo.png';
 
 interface ItemCardProps {
-  item: any;
+  item: any; // Relaxed for flexible store/search/home usage in Swiggy 2026 Shift
   className?: string;
   variant?: 'default' | 'compact' | 'cart';
   onQuickAdd?: () => void;
   partnerId?: string;
   priority?: boolean;
-  /** Swiggy pattern: after add from discovery, navigate to store with item sheet open */
-  navigateToStoreOnAdd?: boolean;
 }
 
 export function ItemCard({
@@ -28,53 +31,35 @@ export function ItemCard({
   variant = 'default',
   partnerId,
   priority = false,
-  navigateToStoreOnAdd = false,
 }: ItemCardProps) {
-  const router = useRouter();
   const { draftOrder } = useCart();
 
-  const handleAfterAdd = useCallback(
-    (pid: string | undefined, itemId: string) => {
-      if (pid) router.push(`/partner/${pid}?item=${itemId}`);
-    },
-    [router]
-  );
   const {
     id,
     name,
     base_price,
-    price,
     mrp,
     rating,
     images,
-    image_url,
-    partners,
-    partner_id,
-    has_personalization,
-    is_promoted,
-    is_sponsored,
   } = item;
 
-  const isPersonalizable = has_personalization;
-  const displayPrice = price || base_price || 0;
+  const isPersonalizable = hasItemPersonalization(item);
+  const displayPrice = item.price || base_price || 0;
   const displayMrp = mrp || 0;
-  // WYSHKIT 2026: Extract partner data with fallbacks (Direct Supabase alignment)
-  const itemPartnerId = partnerId || partner_id || (partners as any)?.id;
-  const partnerName = item.partner_name || partners?.name || (partners as any)?.display_name || 'Local Store';
-  const imageUrl = (images && Array.isArray(images) && images[0]) || image_url || FALLBACK_IMAGE;
-  const stockQuantity = item.stock_quantity;
-  const hasVariants = item.variants?.length > 0;
 
-  // WYSHKIT 2026: Check if item is in cart (reactive to draftOrder changes)
+  const itemPartnerId = partnerId || item.partner_id || item.partners?.id;
+  const partnerName = item.partner_name || item.partners?.display_name || item.partners?.name || 'Local Store';
+  const imageUrl = (images && Array.isArray(images) && images[0]) || item.image_url || FALLBACK_IMAGE;
+  const stockQuantity = item.stock_quantity;
+  const hasVariants = (item.variants?.length ?? 0) > 0;
+
   const cartItems = draftOrder?.items || [];
   const isInCart = useMemo(() => {
     return cartItems.some((cartItem: any) => cartItem.itemId === id) || false;
   }, [cartItems, id]);
 
-  // WYSHKIT 2026: Store-First Navigation (Swiggy Pattern)
-  // Card links to store page with ?item= for auto-open sheet. Store is the page; item is content within.
   const href = itemPartnerId
-    ? `/partner/${itemPartnerId}?item=${id}`
+    ? `/partner/${itemPartnerId}/item/${id}`
     : `/search?q=${encodeURIComponent(name)}`;
 
   const deliverySignal = (() => {
@@ -104,7 +89,7 @@ export function ItemCard({
           <h3 className="text-[13px] font-semibold text-zinc-900 truncate leading-tight tracking-tight">{name}</h3>
           <p className="text-[11px] font-medium text-zinc-400 mt-0.5">{partnerName}</p>
           <div className="mt-auto">
-            <span className="text-sm font-bold text-zinc-900 tabular-nums">₹{displayPrice}</span>
+            <span className="text-sm font-bold text-zinc-900 tabular-nums">{formatCurrency(displayPrice)}</span>
           </div>
         </div>
       </div>
@@ -115,9 +100,10 @@ export function ItemCard({
     "flex flex-col group font-sans relative transition-transform duration-300 ease-out hover:scale-[1.02] active:scale-[0.99]",
     className
   );
+
   const cardContent = (
     <>
-      <div className="relative aspect-square overflow-hidden bg-zinc-50 rounded-2xl border border-zinc-100">
+      <div className="relative aspect-square overflow-hidden bg-muted/30 rounded-2xl border border-border/50">
         <div className="relative size-full">
           <Image
             src={imageUrl}
@@ -131,8 +117,8 @@ export function ItemCard({
         </div>
 
         <div className="absolute top-2 left-2 flex flex-col gap-1 items-start max-w-[calc(100%-4rem)]">
-          {is_promoted && (
-            <div className="bg-white/90 backdrop-blur px-1.5 py-0.5 rounded-md shadow-sm">
+          {item.is_promoted && (
+            <div className="bg-white/70 backdrop-blur-md px-1.5 py-0.5 rounded-md shadow-sm border border-white/20">
               <span className="text-[9px] font-bold text-amber-600">Featured</span>
             </div>
           )}
@@ -145,32 +131,36 @@ export function ItemCard({
         </div>
 
         {isPersonalizable && (
-          <div className="absolute bottom-2 left-2 max-w-[calc(100%-4rem)]">
-            <div className="bg-white/90 backdrop-blur px-1.5 py-0.5 rounded-md flex items-center gap-1 shadow-sm">
-              <Sparkles className="size-2.5 text-zinc-900" />
-              <span className="text-[9px] font-bold text-zinc-900">Personalizable</span>
+          <div className="absolute bottom-2 left-2 max-w-[calc(100%-4rem)] animate-in slide-in-from-left-2 duration-500">
+            <div className="bg-[#D91B24]/10 backdrop-blur-md px-2 py-0.5 rounded-md flex items-center gap-1 shadow-sm border border-[#D91B24]/20">
+              <Sparkles className="size-2.5 text-[#D91B24]" />
+              <span className="text-[9px] font-black text-[#D91B24] uppercase tracking-tighter">Identity Enabled</span>
             </div>
           </div>
         )}
 
-        {/* WYSHKIT 2026: Prevent Link navigation when clicking AddToCartButton */}
-        <div
-          className="absolute bottom-2 right-2 z-10"
-          onClick={(e) => e.stopPropagation()}
-          onMouseDown={(e) => e.stopPropagation()}
-        >
-          <AddToCartButton
-            itemId={id}
-            itemName={name}
-            itemImage={imageUrl}
-            unitPrice={displayPrice}
-            partnerId={itemPartnerId}
-            partnerName={partnerName}
-            isPersonalizable={isPersonalizable}
-            hasVariants={hasVariants}
-            onAfterAdd={navigateToStoreOnAdd ? handleAfterAdd : undefined}
-          />
-        </div>
+        {((typeof stockQuantity === 'number' && stockQuantity <= 0) || item.stock_status === 'out_of_stock') ? (
+          <div className="absolute bottom-2 right-2 z-10 bg-white/90 backdrop-blur px-2 py-1 rounded-lg border border-zinc-100 shadow-sm">
+            <span className="text-[10px] font-black text-zinc-400 uppercase tracking-tight">Out of Stock</span>
+          </div>
+        ) : (
+          <div
+            className="absolute bottom-2 right-2 z-10"
+            onClick={(e) => e.stopPropagation()}
+            onMouseDown={(e) => e.stopPropagation()}
+          >
+            <AddToCartButton
+              itemId={id}
+              itemName={name}
+              itemImage={imageUrl}
+              unitPrice={displayPrice}
+              partnerId={itemPartnerId}
+              partnerName={partnerName}
+              isIdentityAvailable={isPersonalizable}
+              hasVariants={hasVariants}
+            />
+          </div>
+        )}
       </div>
 
       <div className="mt-1.5 px-0.5">
@@ -195,20 +185,38 @@ export function ItemCard({
 
         {urgencySignal && (
           <div className="flex items-center gap-1 mt-1">
-            <Flame className={cn("size-3", urgencySignal.type === 'scarcity' ? "text-orange-500" : "text-emerald-500")} />
+            <Flame className={cn("size-3", urgencySignal.type === 'scarcity' ? "text-amber-500" : "text-emerald-500")} />
             <span className={cn(
               "text-[10px] font-bold",
-              urgencySignal.type === 'scarcity' ? "text-orange-600" : "text-emerald-600"
+              urgencySignal.type === 'scarcity' ? "text-amber-600" : "text-emerald-600"
             )}>
               {urgencySignal.text}
             </span>
           </div>
         )}
 
-        <div className="flex items-center gap-1.5 mt-1.5">
-          <span className="text-sm font-bold text-zinc-900 tabular-nums">₹{displayPrice}</span>
+        {(() => {
+          const travelTime = calculateTravelTime(item.distance_km || (item.distance_meters ? item.distance_meters / 1000 : undefined));
+          if (!travelTime) return null;
+          return (
+            <div className="flex items-center gap-1.5 mt-1.5 px-0.5">
+              <Clock className="size-3 text-zinc-400" />
+              <span className="text-[9px] font-black text-zinc-500 uppercase tracking-widest">
+                {travelTime.min}-{travelTime.max} mins
+              </span>
+            </div>
+          );
+        })()}
+
+        <div className="flex items-center gap-2 mt-2 px-0.5 flex-wrap">
+          <span className="text-sm font-black text-foreground tabular-nums tracking-tighter">{formatCurrency(displayPrice)}</span>
           {displayMrp > displayPrice && (
-            <span className="text-[10px] text-zinc-400 line-through font-medium">₹{displayMrp}</span>
+            <div className="flex items-center gap-1.5">
+              <span className="text-[10px] text-muted-foreground line-through font-bold opacity-30">{formatCurrency(displayMrp)}</span>
+              <span className="text-[10px] font-black text-emerald-600 uppercase tracking-tighter bg-emerald-50 px-1.5 py-0.5 rounded-md">
+                {Math.round(((displayMrp - displayPrice) / displayMrp) * 100)}% OFF
+              </span>
+            </div>
           )}
         </div>
       </div>
@@ -219,8 +227,12 @@ export function ItemCard({
     <Link
       href={href}
       className={cardClassName}
-      prefetch={false}
+      prefetch={true}
       scroll={false}
+      onClick={() => {
+        // WYSHKIT 2026: Momentum Haptic
+        triggerHaptic(HapticPattern.ACTION);
+      }}
     >
       {cardContent}
     </Link>

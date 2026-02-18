@@ -17,7 +17,7 @@ export default async function OrdersPage() {
     // WYSHKIT 2026: Use v_orders_detailed for rich context (items, partner_image)
     const { data: orders, error } = await supabase
         .from('v_orders_detailed')
-        .select('id, order_number, status, total, created_at, delivery_address, partner_name, partner_image, items')
+        .select('id, order_number, status, total, created_at, delivery_address, partner_name, partner_image, items, has_personalization, personalization_status')
         .eq('user_id', user.id)
         .order('created_at', { ascending: false }) as any;
 
@@ -43,7 +43,7 @@ export default async function OrdersPage() {
                             My Orders
                         </h1>
                         <p className="text-[11px] font-bold text-zinc-400 uppercase tracking-widest mt-0.5">
-                            Track and manage your gifts
+                            Track and manage your orders
                         </p>
                     </div>
                     <span className="text-[10px] font-black text-zinc-500 uppercase tracking-widest bg-white px-3 py-1.5 rounded-full border border-zinc-100 shadow-sm">

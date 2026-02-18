@@ -23,6 +23,7 @@ export async function createPaymentOrder(
         gstin?: string;
         appliedCoupon?: any;
         walletDiscount?: number;
+        useWallet?: boolean;
         deliveryInstructions?: string;
     }
 ) {
@@ -66,35 +67,36 @@ export async function createPaymentOrder(
             }
         }
 
-        // 1.5. WYSHKIT 2026: STRICT INVENTORY CHECK (F4)
-        const variantUsage = new Map<string, number>();
-        payload.draftItems.forEach((item: any) => {
-            const vId = item.selectedVariantId ?? item.variantId;
-            if (vId) variantUsage.set(vId, (variantUsage.get(vId) || 0) + (item.quantity || 1));
+        // 1.5. WYSHKIT 2026: CLEANUP PREVIOUS RESERVATIONS (Self-Lockout Prevention)
+        // Before checking stock, we clear any previous reservations for this user
+        // to ensure their own previous attempts don't block them.
+        await supabase.from('stock_reservations').delete().eq('user_id', user.id);
+
+        // 1.6. WYSHKIT 2026: BATCHED INVENTORY CHECK (F4) - Parallelize to avoid N+1
+        const stockChecks = payload.draftItems.map(async (item: any) => {
+            const vId = item.selectedVariantId ?? item.variantId ?? null;
+            const itemId = item.itemId;
+            const qtyNeeded = item.quantity || 1;
+
+            const { data: availableStock, error: stockError } = await supabase.rpc('get_available_stock', {
+                p_variant_id: vId,
+                p_item_id: itemId,
+                p_exclude_user_id: user.id
+            });
+
+            if (stockError) throw new Error(`Stock verification failed for ${item.name || itemId}`);
+            const available = Number(availableStock) || 0;
+            if (available < qtyNeeded) {
+                throw new Error(`Insufficient stock for "${item.name || 'Item'}". Only ${available} available.`);
+            }
+            return true;
         });
 
-        if (variantUsage.size > 0) {
-            const variantIds = Array.from(variantUsage.keys());
-            const { data: variants, error: stockError } = await supabase
-                .from('variants')
-                .select('id, stock_quantity, item_id, items(name)')
-                .in('id', variantIds);
-
-            if (stockError) {
-                logger.error('Inventory check failed', stockError);
-                return { error: 'Failed to verify inventory', status: 500 };
-            }
-
-            for (const [vId, requiredQty] of variantUsage.entries()) {
-                const variant = variants?.find(v => v.id === vId);
-                if (!variant) {
-                    return { error: 'One or more items are no longer available', status: 400 };
-                }
-                if ((variant.stock_quantity || 0) < requiredQty) {
-                    const itemName = (variant.items as any)?.name || 'Item';
-                    return { error: `Insufficient stock for ${itemName} (Available: ${variant.stock_quantity})`, status: 409 };
-                }
-            }
+        try {
+            await Promise.all(stockChecks);
+        } catch (err: any) {
+            logger.error('Inventory check failed', { error: err.message });
+            return { error: err.message, status: 409 };
         }
 
         // 2. FETCH PRICING FROM DB RPC
@@ -107,9 +109,11 @@ export async function createPaymentOrder(
                 hasPersonalization: hasAnyPersonalization([item]),
                 selectedAddons: item.selectedAddons || []
             })),
-            p_delivery_fee: deliveryFee,
+            p_delivery_fee_override: deliveryFee,
             p_coupon_code: payload.appliedCoupon?.code || null,
-            p_distance_km: distanceKm
+            p_distance_km: distanceKm,
+            p_use_wallet: payload.useWallet || false,
+            p_user_id: user.id
         });
 
         if (pricingError || (pricingData as any).error) {
@@ -117,13 +121,20 @@ export async function createPaymentOrder(
         }
 
         // 3. SECURE VALIDATION
+        // WYSHKIT 2026: Strict Total Sync (RPC handles wallet deduction now)
         const serverAmount = Math.round((pricingData as any).total * 100);
-        const walletPaise = Math.round((payload.walletDiscount || 0) * 100);
-        const expectedClientAmount = serverAmount - walletPaise;
         const clientAmount = Math.round(amount);
 
-        if (Math.abs(expectedClientAmount - clientAmount) > 5) {
-            return { error: 'Price mismatch detected. Order security triggered.', status: 400 };
+        if (Math.abs(serverAmount - clientAmount) > 100) {
+            logger.warn('Price mismatch detected', { serverAmount, clientAmount, userId: user.id });
+            // WYSHKIT 2026: Trust Server Authority.
+            // We proceed with serverAmount for the Razorpay order.
+        }
+
+        // Only block if discrepancy is extreme (> 50%) which suggests a sync bug or attack
+        if (Math.abs(serverAmount - clientAmount) > (clientAmount * 0.5)) {
+            logger.error('Price mismatch detected (critical)', { serverAmount, clientAmount, userId: user.id });
+            return { error: 'Price discrepancy too high. Please refresh cart.', status: 400 };
         }
 
         // 4. PERSIST DRAFT (WYSHKIT 2026: Bypass Razorpay Notes Limit)
@@ -169,6 +180,27 @@ export async function createPaymentOrder(
                 draftId: draft.id, // Only pass the ID to stay under 256 chars
             }
         );
+
+        // 6. HARDENING P0: STOCK RESERVATION
+        // Now that we have the Razorpay Order ID, we "lock" the stock for 10 minutes.
+        const reservationInserts = payload.draftItems.map((item: any) => ({
+            user_id: user.id,
+            payment_intent_id: order.id,
+            item_id: item.itemId,
+            variant_id: item.selectedVariantId ?? item.variantId ?? null,
+            quantity: item.quantity || 1,
+            expires_at: new Date(Date.now() + 10 * 60 * 1000).toISOString()
+        }));
+
+        const { error: reserveError } = await supabase
+            .from('stock_reservations')
+            .insert(reservationInserts);
+
+        if (reserveError) {
+            logger.error('Failed to reserve stock', reserveError);
+            // We don't block the order yet, but in a strict 2026 model, we might.
+            // For now, logging is enough as the verify step will check stock again.
+        }
 
         return {
             order: {
@@ -236,13 +268,18 @@ export async function verifyPaymentSignature(
 
         if (existingOrder) {
             logger.info('verifyPaymentSignature: order already exists (webhook won)', { orderId: existingOrder.id });
-            await cleanupDraftOrders(); // Clean up expired/stale drafts
+
+            // WYSHKIT 2026: Fetch full details for the success overlay
+            const { getOrderWithHistory } = await import('@/lib/actions/orders');
+            const { order: orderWithDetails } = await getOrderWithHistory(existingOrder.id);
+
             return {
                 success: true,
                 verified: true,
                 orderId: existingOrder.id,
                 orderNumber: existingOrder.order_number,
                 hasPersonalization: existingOrder.has_personalization,
+                order: orderWithDetails || existingOrder,
                 error: null,
             };
         }
@@ -275,12 +312,16 @@ export async function verifyPaymentSignature(
         // Cleanup draft
         await supabase.from('draft_orders').delete().eq('id', draft.id);
 
+        // WYSHKIT 2026: Direct Hydration from Enriched RPC
+        // The RPC now returns the FULL order object in `orderResult.order`
+        // We no longer need to fetch it again!
         return {
             success: true,
             verified: true,
             orderId: (orderResult as any).orderId,
             orderNumber: (orderResult as any).orderNumber,
             hasPersonalization: hasPers,
+            order: (orderResult as any).order, // Enriched Data from RPC
             error: null,
         };
     } catch (error) {

@@ -65,21 +65,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     const refreshSession = async () => {
         try {
-            const { data: { session }, error: sessionError } = await supabase.auth.getSession();
-            let currentUser: User | null = null;
+            // WYSHKIT 2026: Security Hardening - Use getUser() as source of truth
+            // WYSHKIT 2026: Security Hardening - Use getUser() as source of truth
+            const { data: { user: fetchedUser }, error: userError } = await supabase.auth.getUser();
+            let currentUser: User | null = fetchedUser;
 
-            if (sessionError || !session) {
-                const { data: { user: fallbackUser }, error: userError } = await supabase.auth.getUser();
-                if (userError || !fallbackUser) {
-                    setUser(null);
-                    setPermissions(null);
-                    setLoading(false);
-                    sessionStorage.removeItem('wyshkit_perms');
-                    return;
-                }
-                currentUser = fallbackUser;
-            } else {
-                currentUser = session.user;
+            if (userError || !currentUser) {
+                setUser(null);
+                setPermissions(null);
+                setLoading(false);
+                sessionStorage.removeItem('wyshkit_perms');
+                return;
             }
 
             if (!currentUser) {
@@ -126,7 +122,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         return () => {
             subscription.unsubscribe();
         };
-    }, [supabase, permissions]);
+    }, [supabase]);
 
     const signOut = async () => {
         try {

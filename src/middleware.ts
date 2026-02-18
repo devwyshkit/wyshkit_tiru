@@ -7,11 +7,6 @@ export async function middleware(request: NextRequest) {
     // 1. Resolve Session and Auth
     const supabaseResponse = await updateSession(request)
 
-    // If updateSession returned a redirect, honor it immediately
-    if (supabaseResponse.status >= 300 && supabaseResponse.status < 400) {
-      return supabaseResponse
-    }
-
     // 2. Resolve Location Context
     const lat = request.cookies.get('wyshkit_lat')?.value
     const lng = request.cookies.get('wyshkit_lng')?.value

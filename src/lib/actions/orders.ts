@@ -111,30 +111,23 @@ export async function submitOrderPersonalization(orderId: string, personalizatio
 
     // 4. Try updating Relational Items & Order Personalization
     const personalizationEntries = [];
-    let entryIndex = 0;
 
     for (const [orderItemId, details] of Object.entries(personalizationInput)) {
       const d = details as any;
-      const { data: itemExists } = await adminSupabase
+
+      // Update order_item status directly
+      await adminSupabase
         .from('order_items')
-        .select('id')
-        .eq('id', orderItemId)
-        .maybeSingle();
+        .update({
+          personalization_details: d as unknown as Json,
+          status: 'submitted'
+        })
+        .eq('id', orderItemId);
 
-      if (itemExists) {
-        await adminSupabase
-          .from('order_items')
-          .update({
-            personalization_details: d as unknown as Json,
-            status: 'submitted'
-          })
-          .eq('id', orderItemId);
-      }
-
-      // WYSHKIT 2026: Add to relational personalization table for structured tracking
+      // WYSHKIT 2026: Add to relational personalization table using order_item_id
       personalizationEntries.push({
         order_id: orderId,
-        item_index: entryIndex++,
+        order_item_id: orderItemId, // Updated to use relational ID
         text_input: d.text || null,
         uploaded_files: d.image_url ? [d.image_url] : (d.images || []),
         instructions: d.instructions || null,
@@ -146,7 +139,9 @@ export async function submitOrderPersonalization(orderId: string, personalizatio
     if (personalizationEntries.length > 0) {
       await adminSupabase
         .from('order_personalization')
-        .upsert(personalizationEntries);
+        .upsert(personalizationEntries, {
+          onConflict: 'order_item_id'
+        });
     }
 
     await logOrderStatusHistory(orderId, 'personalization_submitted', 'Details Shared', 'You have shared the personalization details with the partner.', { personalization: personalizationInput });
@@ -164,28 +159,7 @@ export async function submitOrderPersonalization(orderId: string, personalizatio
  * WYSHKIT 2026: Enforce HARD LIMIT on revisions (5 attempts total).
  * Corresponds to Break #2.
  */
-export async function enforceRevisionLimits(orderId: string) {
-  try {
-    const supabase = await createAdminClient();
 
-    // Count existing previews/revisions
-    const { count, error } = await supabase
-      .from('preview_submissions')
-      .select('*', { count: 'exact', head: true })
-      .eq('order_id', orderId);
-
-    if (error) throw error;
-
-    if (count && count >= 5) {
-      return { limited: true, count, message: 'Maximum revision limit (5) reached. Please approve the current design or contact support.' };
-    }
-
-    return { limited: false, count };
-  } catch (error) {
-    logger.error(`Failed to check revision limits for ${orderId}`, error);
-    return { limited: true, error: 'Failed to verify limits' };
-  }
-}
 
 export async function markOrderAsPacked(orderId: string) {
   try {
@@ -207,27 +181,58 @@ export async function markOrderAsPacked(orderId: string) {
 
 export async function approvePreview(previewSubmissionId: string, orderId: string) {
   try {
-    const supabase = await createClient();
+    const adminSupabase = await createAdminClient();
 
-    const { error: previewError } = await supabase
+    // 1. Get the preview and its linked item
+    const { data: preview, error: fetchError } = await adminSupabase
+      .from('preview_submissions')
+      .select('order_item_id')
+      .eq('id', previewSubmissionId)
+      .single();
+
+    if (fetchError || !preview) throw new Error('Preview not found');
+
+    // 2. Approve the preview
+    const { error: previewError } = await adminSupabase
       .from('preview_submissions')
       .update({ status: 'approved' })
       .eq('id', previewSubmissionId);
 
     if (previewError) throw previewError;
 
-    const { error: orderError } = await supabase
+    // 3. Update the specific item status
+    if (preview.order_item_id) {
+      await adminSupabase
+        .from('order_items')
+        .update({ status: 'approved' })
+        .eq('id', preview.order_item_id);
+    }
+
+    // 4. Check if ALL personalized items are approved
+    const { data: items } = await adminSupabase
+      .from('order_items')
+      .select('id, status, is_personalized')
+      .eq('order_id', orderId);
+
+    const personalizedItems = (items || []).filter(i => i.is_personalized);
+    const allApproved = personalizedItems.every(i => i.status === 'approved');
+
+    // 5. Update Order Status
+    const { error: orderError } = await adminSupabase
       .from('orders')
       .update({
-        status: ORDER_STATUS.APPROVED,
-        approved_at: new Date().toISOString(),
+        status: allApproved ? ORDER_STATUS.APPROVED : ORDER_STATUS.PREVIEW_READY,
+        approved_at: allApproved ? new Date().toISOString() : null,
         updated_at: new Date().toISOString()
       })
       .eq('id', orderId);
 
     if (orderError) throw orderError;
 
-    await logOrderStatusHistory(orderId, 'preview_approved', 'Preview Approved', 'You have approved the preview. The partner will now start production (Preparing).', { preview_submission_id: previewSubmissionId });
+    await logOrderStatusHistory(orderId, 'preview_approved', 'Preview Approved', `You have approved the preview${personalizedItems.length > 1 ? ' for an item' : ''}.`, {
+      preview_submission_id: previewSubmissionId,
+      order_item_id: preview.order_item_id
+    });
 
     revalidatePath(`/orders/${orderId}`);
     return { success: true };
@@ -260,7 +265,20 @@ export async function requestChange(previewSubmissionId: string, orderId: string
       return { success: false, error: `Maximum ${maxChangeRequests} change requests allowed. Please approve or contact support.` };
     }
 
-    const { error: previewError } = await supabase
+    // WYSHKIT 2026: Use Admin Client for preview status updates (RLS Bypass)
+    const adminSupabase = await createAdminClient();
+
+    // 1. Get the preview and its linked item
+    const { data: preview, error: fetchPreviewError } = await adminSupabase
+      .from('preview_submissions')
+      .select('order_item_id')
+      .eq('id', previewSubmissionId)
+      .single();
+
+    if (fetchPreviewError || !preview) throw new Error('Preview not found');
+
+    // 2. Update preview status
+    const { error: previewError } = await adminSupabase
       .from('preview_submissions')
       .update({
         status: 'change_requested',
@@ -270,7 +288,15 @@ export async function requestChange(previewSubmissionId: string, orderId: string
 
     if (previewError) throw previewError;
 
-    const { error: updateOrderError } = await supabase
+    // 3. Update the specific item status
+    if (preview.order_item_id) {
+      await adminSupabase
+        .from('order_items')
+        .update({ status: 'revision_requested' })
+        .eq('id', preview.order_item_id);
+    }
+
+    const { error: updateOrderError } = await adminSupabase
       .from('orders')
       .update({
         status: ORDER_STATUS.REVISION_REQUESTED,
@@ -345,161 +371,6 @@ export async function getOrderWithHistory(orderId: string): Promise<{ order: Ord
   }
 }
 
-export async function enforceDesignDeadlines() {
-  try {
-    const supabase = await createAdminClient();
-    const now = new Date().toISOString();
-
-    // 1. Cancel orders where customer hasn't shared details within 12h
-    const { data: expiredDetails, error: fetchError } = await supabase
-      .from('orders')
-      .select('id, order_number, user_id, payment_id, total')
-      .eq('status', ORDER_STATUS.CONFIRMED)
-      .eq('has_personalization', true)
-      .is('personalization_input', null)
-      .lt('design_deadline_at', now);
-
-    if (fetchError) throw fetchError;
-    const expiredOrdersList = (expiredDetails || []) as unknown as Pick<DBOrder, 'id' | 'order_number' | 'user_id' | 'payment_id' | 'total'>[];
-
-    const results = [];
-
-    for (const order of expiredOrdersList) {
-      try {
-        await supabase
-          .from('orders')
-          .update({
-            status: ORDER_STATUS.CANCELLED,
-            return_status: 'auto_refunded',
-            updated_at: now
-          })
-          .eq('id', order.id);
-
-        await logOrderStatusHistory(
-          order.id,
-          'auto_refund',
-          'Order Cancelled (Details Timeout)',
-          'Your order was cancelled and refunded because personalization details were not shared within 12 hours.',
-          { order_number: order.order_number }
-        );
-
-        results.push(order.id);
-      } catch (err) {
-        logError(err, `AutoRefund: ${order.id}`);
-      }
-    }
-
-    // 2. Auto-approve previews after 12h of no customer action
-    const { data: pendingApprovals, error: approvalFetchError } = await supabase
-      .from('orders')
-      .select('id, order_number')
-      .eq('status', ORDER_STATUS.PREVIEW_READY)
-      .lt('preview_uploaded_at', new Date(Date.now() - 12 * 60 * 60 * 1000).toISOString());
-
-    if (!approvalFetchError && pendingApprovals) {
-      for (const order of pendingApprovals) {
-        try {
-          // Auto-approve the latest preview
-          const { data: preview } = await supabase
-            .from('preview_submissions')
-            .select('id')
-            .eq('order_id', order.id)
-            .eq('status', 'pending')
-            .order('submitted_at', { ascending: false })
-            .limit(1)
-            .maybeSingle();
-
-          if (preview) {
-            await supabase.from('preview_submissions').update({ status: 'approved' }).eq('id', preview.id);
-            await supabase.from('orders').update({
-              status: ORDER_STATUS.APPROVED,
-              approved_at: now,
-              updated_at: now
-            }).eq('id', order.id);
-
-            await logOrderStatusHistory(
-              order.id,
-              'auto_approve',
-              'Design Auto-Approved',
-              'The design has been auto-approved after 12 hours of inactivity. Production will begin shortly.',
-              { order_number: order.order_number }
-            );
-            results.push(order.id);
-          }
-        } catch (err) {
-          logError(err, `AutoApprove: ${order.id}`);
-        }
-      }
-    }
-
-    return { count: results.length };
-  } catch (error) {
-    logError(error, 'EnforceDesignDeadlines');
-    return { error: 'Failed to process deadlines' };
-  }
-}
-
-/** WYSHKIT 2026: Enforce 5-minute Partner Acceptance window. */
-export async function enforceAcceptanceTimeouts() {
-  try {
-    const supabase = await createAdminClient();
-    const now = new Date().toISOString();
-
-    const { data: timedOutOrders, error: fetchError } = await supabase
-      .from('orders')
-      .select('id, order_number, user_id, payment_id, total')
-      .eq('status', ORDER_STATUS.PLACED)
-      .lt('accept_deadline', now);
-
-    if (fetchError) throw fetchError;
-    if (!timedOutOrders || timedOutOrders.length === 0) return { count: 0 };
-
-    const results = [];
-
-    for (const order of timedOutOrders) {
-      try {
-        // 1. Mark as Cancelled
-        await supabase
-          .from('orders')
-          .update({
-            status: ORDER_STATUS.CANCELLED,
-            cancellation_reason: 'Partner acceptance timeout (5m)',
-            cancelled_by: 'system',
-            return_status: 'auto_refunded',
-            updated_at: now
-          })
-          .eq('id', order.id);
-
-        // 2. Trigger Refund if paid
-        if (order.payment_id) {
-          try {
-            const { refundPayment } = await import('@/lib/services/razorpay');
-            await refundPayment(order.payment_id);
-          } catch (refundErr) {
-            logger.error('Auto-refund failed for acceptance timeout', refundErr, { orderId: order.id });
-          }
-        }
-
-        await logOrderStatusHistory(
-          order.id,
-          'system_cancel',
-          'Order Timed Out',
-          'The partner did not accept the order within 5 minutes. A full refund has been initiated.',
-          { order_number: order.order_number }
-        );
-
-        results.push(order.id);
-      } catch (err) {
-        logError(err, `AcceptanceTimeout: ${order.id}`);
-      }
-    }
-
-    return { count: results.length };
-  } catch (error) {
-    logError(error, 'EnforceAcceptanceTimeouts');
-    return { error: 'Failed to process acceptance timeouts' };
-  }
-}
 
 export async function getMyOrders() {
   try {
@@ -533,21 +404,38 @@ export async function createOrder(payload: PlaceOrderPayload) {
   try {
     const supabase = payload.useAdmin ? await createAdminClient() : await createClient();
 
+    // WYSHKIT 2026: Standardize to snake_case for DB consistency
+    const standardizedItems = payload.items.map(item => ({
+      item_id: item.itemId,
+      variant_id: item.variantId,
+      quantity: item.quantity,
+      has_personalization: item.hasPersonalization,
+      personalization: item.personalization,
+      selected_addons: item.selectedAddons
+    }));
+
     // WYSHKIT 2026: Atomic execution (Single Source of Truth)
-    const { data: result, error } = await (supabase as any).rpc('place_secure_order', {
-      p_items: payload.items as any,
+    const rpcArgs: any = {
+      p_items: standardizedItems as any,
       p_address_id: payload.addressId,
       p_razorpay_order_id: payload.razorpayOrderId,
       p_payment_id: payload.paymentId,
-      p_coupon_code: payload.couponCode,
       p_use_wallet: payload.useWallet || false,
       p_gstin: payload.gstin,
       p_delivery_instructions: payload.deliveryInstructions,
-      p_distance_km: payload.distanceKm
-    });
+      p_distance_km: payload.distanceKm,
+      p_coupon_code: payload.couponCode,
+      p_user_id: payload.userId || null,
+    }
+
+    const { data: result, error } = await (supabase as any).rpc('place_secure_order', rpcArgs);
 
     if (error) throw error;
     const rpcResult = result as any;
+
+    if (rpcResult.success && rpcResult.orderId && !rpcResult.isNew) {
+      logger.info(`[createOrder] Idempotency hit: Order already existed for Razorpay Order ${payload.razorpayOrderId}`, { orderId: rpcResult.orderId });
+    }
 
     if (!rpcResult.success) {
       throw new Error(rpcResult.error || 'Failed to place order');
@@ -557,7 +445,8 @@ export async function createOrder(payload: PlaceOrderPayload) {
     return {
       success: true,
       orderId: rpcResult.orderId,
-      orderNumber: rpcResult.orderNumber
+      orderNumber: rpcResult.orderNumber,
+      hasPersonalization: rpcResult.hasPersonalization
     };
 
   } catch (error) {

@@ -8,6 +8,7 @@ import { useCart } from '@/components/customer/CartProvider';
 import { useActiveOrders } from '@/hooks/useActiveOrders';
 import { cn } from '@/lib/utils';
 import { triggerHaptic, HapticPattern } from '@/lib/utils/haptic';
+import { hasAnyPersonalization } from '@/lib/utils/personalization';
 
 /**
  * WYSHKIT 2026: FloatingCartBar - CSS transitions (zero JS overhead)
@@ -25,10 +26,12 @@ export function FloatingCartBar() {
   const isCheckoutOpen = pathname.startsWith('/checkout');
 
   // WYSHKIT 2026: Smart Layering - Check for active orders to prevent visual collision
-  const { activeOrders } = useActiveOrders();
-  // Filter for orders that actually trigger the OrderTrackingBar
-  // Swiggy 2026: Lift cart if ANY active order is tracking
-  const hasTrackingBar = activeOrders.length > 0;
+  const { activeOrders, loading: trackingLoading } = useActiveOrders();
+
+  // Swiggy 2026: Lift cart if ANY active order is tracking, AND it's not excluded by the bar itself
+  const orderToShow = activeOrders?.[0]; // Matching OrderTrackingBar's priority logic
+  const isExcludedByTracker = pathname === '/checkout' || (orderToShow && pathname === `/orders/${orderToShow.id}`);
+  const hasTrackingBar = activeOrders.length > 0 && !isExcludedByTracker && !trackingLoading;
 
   const hasItems = displayCart && displayCart.itemCount > 0;
 
@@ -50,9 +53,7 @@ export function FloatingCartBar() {
   };
 
   const firstItemImage = displayCart?.items?.[0]?.itemImage;
-  const hasPersonalization = displayCart?.items?.some(
-    (item: any) => item.personalization?.enabled || (item.selectedAddons || []).some((a: { requires_preview?: boolean }) => !!a.requires_preview)
-  );
+  const hasPersonalization = hasAnyPersonalization(displayCart?.items || []);
   const displayCount = displayCart?.itemCount || 0;
   const displayTotal = displayCart?.total || 0;
   // WYSHKIT 2026: Loading state - show loading when fetching cart data
@@ -101,9 +102,9 @@ export function FloatingCartBar() {
     >
       <div
         className={cn(
-          "bg-zinc-900 rounded-2xl shadow-2xl shadow-black/30 overflow-hidden",
-          "transition-transform duration-200",
-          shouldPulse && "scale-[1.02]"
+          "bg-zinc-950/95 backdrop-blur-2xl rounded-[2.5rem] shadow-[0_32px_64px_-16px_rgba(0,0,0,0.6)] border border-white/5 overflow-hidden",
+          "transition-all duration-500 cubic-bezier(0.34, 1.56, 0.64, 1)",
+          shouldPulse && "scale-[1.04]"
         )}
       >
         <div className="flex items-center gap-3 p-3">
@@ -131,19 +132,19 @@ export function FloatingCartBar() {
                 )}
               </div>
               <div className="absolute -top-1 -right-1 size-5 rounded-full bg-[#D91B24] flex items-center justify-center">
-                <span className="text-[10px] font-bold text-white">{visualCount}</span>
+                <span className="text-[10px] font-black text-white">{(visualCount).toString().padStart(2, '0')}</span>
               </div>
             </div>
 
             <div className="flex flex-col items-start min-w-0">
               <div className="flex items-center gap-1.5">
-                <span className="text-sm font-bold text-white">
+                <span className="text-sm font-black text-white tracking-tight">
                   {visualCount} {visualCount === 1 ? 'item' : 'items'}
                 </span>
                 {hasPersonalization && (
                   <span className="flex items-center gap-0.5 px-1.5 py-0.5 rounded-md bg-amber-500/20">
                     <Sparkles className="size-2.5 text-amber-400" />
-                    <span className="text-[9px] font-bold text-amber-400">Personalized</span>
+                    <span className="text-[9px] font-black text-amber-400 uppercase tracking-tighter">Identity Available</span>
                   </span>
                 )}
               </div>
@@ -159,12 +160,15 @@ export function FloatingCartBar() {
             disabled={isLoading}
             className={cn(
               "flex items-center gap-2 px-5 py-3 rounded-xl font-bold text-sm",
-              "bg-[#D91B24] hover:bg-[#c01820] active:scale-95 transition-all",
-              "text-white",
-              isLoading && "opacity-70"
+              "bg-orange-600 hover:bg-orange-700 active:scale-95 transition-all text-white",
+              isLoading && "opacity-70 pointer-events-none"
             )}
           >
-            <span className="tabular-nums">₹{displayTotal.toFixed(0)}</span>
+            {isLoading && displayTotal === 0 ? (
+              <span className="h-4 w-8 bg-white/20 animate-pulse rounded" />
+            ) : (
+              <span className="tabular-nums">₹{displayTotal.toFixed(0)}</span>
+            )}
             <ChevronRight className="size-4" />
           </button>
         </div>

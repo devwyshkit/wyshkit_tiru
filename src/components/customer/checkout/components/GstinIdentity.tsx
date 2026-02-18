@@ -1,0 +1,172 @@
+'use client';
+
+import { useState } from 'react';
+import { ShieldCheck, Loader2, Check, XCircle, FileText } from 'lucide-react';
+import { cn } from '@/lib/utils';
+import { validateGSTINAction } from '@/lib/actions/gstin';
+import { toast } from 'sonner';
+import { generateEstimatePDF } from '@/lib/services/pdf-service';
+import { getPartnerInfo } from '@/lib/actions/draft-order';
+
+interface GstinIdentityProps {
+    initialGstin: string;
+    items: any[];
+    pricing: any;
+    user: any;
+    selectedAddress: any;
+    onGstinChange?: (gstin: string) => void;
+    onBusinessNameUpdate?: (name: string | null) => void;
+}
+
+/**
+ * WYSHKIT 2026: Tax Identity & Business Trust
+ * Handles GSTIN validation and Estimate generation.
+ */
+export function GstinIdentity({
+    initialGstin,
+    items,
+    pricing,
+    user,
+    selectedAddress,
+    onGstinChange,
+    onBusinessNameUpdate
+}: GstinIdentityProps) {
+    const [gstin, setGstin] = useState(initialGstin);
+    const [validation, setValidation] = useState<'idle' | 'validating' | 'valid' | 'invalid'>('idle');
+    const [error, setError] = useState<string | null>(null);
+    const [businessName, setBusinessName] = useState<string | null>(null);
+
+    const handleBlur = async () => {
+        const trimmed = gstin.trim();
+        if (!trimmed) {
+            setValidation('idle');
+            setError(null);
+            onBusinessNameUpdate?.(null);
+            return;
+        }
+        setValidation('validating');
+        setError(null);
+        try {
+            const result = await validateGSTINAction(trimmed);
+            if (result.valid) {
+                setValidation('valid');
+                setError(null);
+                setBusinessName(result.businessName ?? null);
+                onBusinessNameUpdate?.(result.businessName ?? null);
+                if (result.businessName) {
+                    toast.success(`Verified: ${result.businessName}`);
+                }
+            } else {
+                setValidation('invalid');
+                setError(result.error ?? 'Invalid GSTIN');
+                setBusinessName(null);
+                onBusinessNameUpdate?.(null);
+            }
+        } catch (err) {
+            setValidation('invalid');
+            setError('Verification failed');
+        }
+    };
+
+    const handleDownloadEstimate = async () => {
+        if (!items.length || !pricing) {
+            toast.error("No items in cart");
+            return;
+        }
+
+        const partnerId = (items[0] as any).partnerId;
+        const { data: partner } = await getPartnerInfo(partnerId);
+
+        generateEstimatePDF({
+            date: new Date().toLocaleDateString(),
+            customerName: user?.user_metadata?.full_name || "Valued Customer",
+            businessName: businessName || undefined,
+            billingAddress: selectedAddress,
+            gstin: gstin || undefined,
+            partner: partner
+                ? {
+                    name: partner.name,
+                    address: partner.address || 'Bangalore, India',
+                    gstin: partner.gstin || undefined,
+                }
+                : { name: 'Partner', address: 'Bangalore, India' },
+            cart: {
+                items: items.map((it: any) => ({
+                    itemName: it.name || "Item",
+                    quantity: it.quantity || 1,
+                    unitPrice: it.unitPrice || 0,
+                    totalPrice: (it.unitPrice || 0) * (it.quantity || 1),
+                })),
+                subtotal: pricing.subtotal,
+                total: pricing.total
+            } as any,
+            totals: {
+                itemTotal: pricing.subtotal,
+                deliveryFee: pricing.deliveryFee,
+                platformFee: pricing.platformFee,
+                gstAmount: pricing.gst,
+                grandTotal: pricing.total,
+                discount: (pricing.discount || 0) + (pricing.walletDiscount || 0)
+            }
+        });
+
+        toast.success("Estimate downloaded");
+    };
+
+    return (
+        <div className="p-4 rounded-2xl border bg-zinc-50/50 border-zinc-100">
+            <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                        <ShieldCheck className="size-4 text-zinc-900" />
+                        <span className="text-[10px] font-bold uppercase tracking-widest text-zinc-900">Tax Identity (GSTIN)</span>
+                    </div>
+                    <span className="text-[10px] font-medium text-emerald-600">Save 18%</span>
+                </div>
+                <div className="relative">
+                    <input
+                        type="text"
+                        value={gstin}
+                        onChange={(e) => {
+                            const val = e.target.value.toUpperCase();
+                            setGstin(val);
+                            onGstinChange?.(val);
+                            if (validation !== 'idle') setValidation('idle');
+                            setError(null);
+                        }}
+                        onBlur={handleBlur}
+                        placeholder="Enter 15-digit GSTIN"
+                        className={cn(
+                            "w-full h-10 pl-3 pr-10 bg-white border rounded-lg text-xs font-bold placeholder:text-zinc-300 focus:outline-none transition-all",
+                            validation === 'invalid' ? "border-rose-200 bg-rose-50" : "border-zinc-200 focus:border-zinc-900"
+                        )}
+                    />
+                    <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                        {validation === 'validating' && <Loader2 className="size-3 text-zinc-400 animate-spin" />}
+                        {validation === 'valid' && <Check className="size-3 text-emerald-500 stroke-[3]" />}
+                        {validation === 'invalid' && <XCircle className="size-3 text-rose-500" />}
+                    </div>
+                </div>
+                {businessName && (
+                    <div className="flex items-center gap-1.5 animate-in fade-in slide-in-from-top-1">
+                        <Check className="size-3 text-emerald-600" />
+                        <span className="text-[10px] font-bold text-emerald-700 uppercase tracking-tight">{businessName} verified</span>
+                    </div>
+                )}
+                {error && <p className="text-[10px] text-rose-600 font-bold">{error}</p>}
+
+                <div className="flex items-center justify-between pt-1">
+                    <p className="text-[10px] text-zinc-400">Claims input tax credit</p>
+                    <button
+                        type="button"
+                        onClick={handleDownloadEstimate}
+                        className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-zinc-900 hover:underline transition-all"
+                    >
+                        <FileText className="size-3" />
+                        Get Estimate
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+}

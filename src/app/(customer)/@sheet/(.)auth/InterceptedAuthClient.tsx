@@ -36,7 +36,7 @@ export function InterceptedAuthClient() {
                                 <Loader2 className="size-6 animate-spin text-zinc-400" />
                             </div>
                         }>
-                            <AuthContent />
+                            <AuthContent onClose={() => router.back()} />
                         </Suspense>
                     </div>
                 </div>
@@ -45,10 +45,22 @@ export function InterceptedAuthClient() {
     );
 }
 
-function AuthContent() {
+function AuthContent({ onClose }: { onClose: () => void }) {
     const searchParams = useSearchParams();
+    const router = useRouter();
     const intent = searchParams.get('intent') || 'signin';
     const returnUrl = searchParams.get('returnUrl') || '/';
 
-    return <AuthPageClient intent={intent} returnUrl={returnUrl} hideHeader hideBack />;
+    return (
+        <AuthPageClient
+            intent={intent}
+            returnUrl={returnUrl}
+            hideHeader
+            hideBack
+            onComplete={() => {
+                onClose();
+                router.refresh(); // Ensure state updates
+            }}
+        />
+    );
 }

@@ -47,6 +47,7 @@ export async function calculateOrderTotalRPC(
         selectedAddons: item.selectedAddons ?? []
       })) as unknown as Json,
       p_delivery_fee_override: deliveryFee,
+      p_address_id: addressId || undefined,
       p_coupon_code: couponCode || undefined,
       p_distance_km: distanceKm || undefined,
       p_use_wallet: useWallet,

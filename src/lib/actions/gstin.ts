@@ -23,5 +23,11 @@ export async function validateGSTINAction(gstin: string): Promise<GSTINValidatio
   }
   // WYSHKIT 2026: External KYC (IDfy) is deferred to partner-specific flow.
   // We proceed as valid as long as the initial regex/length check passed.
+
+  // Persist for session
+  const { cookies } = await import('next/headers');
+  const cookieStore = await cookies();
+  cookieStore.set('gstin', trimmed, { maxAge: 60 * 60 });
+
   return { valid: true };
 }

@@ -2,10 +2,11 @@
 
 import React, { useState } from 'react';
 import Image from 'next/image';
-import { XCircle } from 'lucide-react';
+import { XCircle, FileText, ChevronDown, ChevronUp } from 'lucide-react';
 import { Textarea } from '@/components/ui/textarea';
 import { ActionSlider } from '@/components/ui/ActionSlider';
 import type { PreviewSubmission } from '@/hooks/useOrderRealtime';
+import { SubmittedIdentity } from './tracking/SubmittedIdentity';
 
 interface PreviewApprovalProps {
     preview: PreviewSubmission;
@@ -14,6 +15,7 @@ interface PreviewApprovalProps {
     onApprove: () => void;
     onRequestChange: (feedback: string) => void;
     isApproving: boolean;
+    orderItem?: any; // New: To show context
 }
 
 export function PreviewApproval({
@@ -22,30 +24,79 @@ export function PreviewApproval({
     maxChanges = 2,
     onApprove,
     onRequestChange,
-    isApproving
+    isApproving,
+    orderItem
 }: PreviewApprovalProps) {
     const [showFeedback, setShowFeedback] = useState(false);
+    const [showContext, setShowContext] = useState(false);
     const [feedback, setFeedback] = useState('');
     const changesRemaining = Math.max(0, maxChanges - changeCount);
 
     return (
         <section className="bg-white space-y-4">
-            <div className="flex items-center justify-between px-1">
-                <h3 className="text-lg font-bold text-zinc-900 leading-tight">Review Design</h3>
-                <div className="flex items-center gap-1.5 px-2.5 py-1 bg-emerald-50 rounded-full border border-emerald-100">
-                    <div className="size-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                    <span className="text-[10px] text-emerald-700 font-bold uppercase tracking-wider">Action Needed</span>
+            {/* WYSHKIT 2026: Minimal Header */}
+            <div className="flex items-center justify-between px-1 pb-2">
+                <div>
+                    <h3 className="text-lg font-black text-zinc-900 tracking-tight leading-none">Design Review</h3>
+                    <p className="text-[11px] text-zinc-500 font-medium mt-1">Verify details before production</p>
                 </div>
+                {changesRemaining > 0 && (
+                    <div className="flex items-center gap-1.5 px-3 py-1.5 bg-zinc-900 rounded-full shadow-sm">
+                        <div className="size-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                        <span className="text-[10px] text-white font-bold uppercase tracking-wider">Action Req.</span>
+                    </div>
+                )}
             </div>
 
-            <div className="relative aspect-[4/5] bg-zinc-100 rounded-3xl overflow-hidden shadow-sm border border-zinc-200/50">
-                <Image src={preview.preview_url} alt="Preview" fill className="object-cover" />
+            {/* WYSHKIT 2026: Requirement Context (Cross-Verification) */}
+            {orderItem?.personalization_details && (
+                <div className="bg-zinc-50 rounded-2xl border border-zinc-100 overflow-hidden">
+                    <button
+                        onClick={() => setShowContext(!showContext)}
+                        className="w-full px-4 py-3 flex items-center justify-between text-left hover:bg-zinc-100/50 transition-colors"
+                    >
+                        <div className="flex items-center gap-2">
+                            <FileText className="size-3.5 text-zinc-400" />
+                            <span className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">Your Requirements</span>
+                        </div>
+                        {showContext ? <ChevronUp className="size-3.5 text-zinc-400" /> : <ChevronDown className="size-3.5 text-zinc-400" />}
+                    </button>
+                    {showContext && (
+                        <div className="px-4 pb-4 animate-in slide-in-from-top-2 duration-300">
+                            <SubmittedIdentity
+                                details={orderItem.personalization_details as any}
+                                itemName={orderItem.item_name || orderItem.name}
+                            />
+                        </div>
+                    )}
+                </div>
+            )}
+
+            {/* WYSHKIT 2026: Immersive Preview Card */}
+            <div className="relative aspect-[4/5] bg-zinc-100 rounded-[32px] overflow-hidden shadow-sm border border-zinc-100 group">
+                <Image
+                    src={preview.preview_url}
+                    alt="Preview"
+                    fill
+                    className="object-cover transition-transform duration-700 group-hover:scale-105"
+                />
+
+                {/* Gradient Overlay for Text Readability */}
+                <div className="absolute inset-0 bg-gradient-to-t from-black/40 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
+
                 {preview.partner_notes && (
-                    <div className="absolute bottom-0 inset-x-0 bg-white/90 backdrop-blur-md p-4 border-t border-white/20">
-                        <p className="text-xs font-medium text-zinc-900">
-                            <span className="text-zinc-500 block text-[10px] font-bold uppercase tracking-wider mb-0.5">Partner Note</span>
-                            {preview.partner_notes}
-                        </p>
+                    <div className="absolute bottom-4 left-4 right-4 bg-white/95 backdrop-blur-xl p-4 rounded-2xl shadow-lg border border-white/20">
+                        <div className="flex items-start gap-3">
+                            <div className="size-8 rounded-full bg-zinc-100 flex items-center justify-center shrink-0">
+                                <span className="text-xs">🧑‍🎨</span>
+                            </div>
+                            <div className="space-y-0.5">
+                                <span className="text-[10px] font-black uppercase tracking-wider text-zinc-400">Partner Note</span>
+                                <p className="text-sm font-medium text-zinc-900 leading-snug">
+                                    "{preview.partner_notes}"
+                                </p>
+                            </div>
+                        </div>
                     </div>
                 )}
             </div>

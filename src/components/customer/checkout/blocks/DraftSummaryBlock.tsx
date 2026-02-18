@@ -6,6 +6,8 @@ import { ShieldAlert, Plus, Minus, Trash2 } from 'lucide-react';
 import type { HydratedDraftItem } from '../types';
 import { cn } from '@/lib/utils';
 
+import { triggerHaptic, HapticPattern } from '@/lib/utils/haptic';
+
 const FALLBACK_IMAGE = '/images/logo.png';
 
 interface DraftSummaryBlockProps {
@@ -22,6 +24,7 @@ export function DraftSummaryBlock({ items, onUpdateQuantity, onRemoveItem, edita
   if (items.length === 0) return null;
 
   const handleQuantityChange = (itemId: string, variantId: string | null, currentQty: number, delta: number) => {
+    triggerHaptic(HapticPattern.ACTION);
     const newQty = Math.max(0, currentQty + delta);
     if (newQty === 0) {
       onRemoveItem?.(itemId, variantId);

@@ -2,7 +2,7 @@
 
 import { ReactNode, Suspense, useState, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { ChevronLeft, Loader2, Truck, Package, Check, XCircle, CreditCard, ChevronDown, ChevronUp } from "lucide-react";
+import { ChevronLeft, Loader2, Truck, Package, Check, XCircle, CreditCard, ChevronDown, ChevronUp, ShieldCheck, ChevronRight, Info, FileText } from "lucide-react";
 import { SlideToPay } from "@/components/features/checkout/SlideToPay";
 import { useAuth } from "@/hooks/useAuth";
 import { Confetti } from "@/components/ui/Confetti";
@@ -16,14 +16,11 @@ import { Button } from "@/components/ui/button";
 import { ShoppingBag, RefreshCw, MapPin } from "lucide-react";
 import { CartSlot } from "./slots/CartSlot";
 import { AddressSlot } from "./slots/AddressSlot";
+import { createClient } from "@/lib/supabase/client";
+import { logger } from "@/lib/logging/logger";
+import { formatCurrency } from "@/lib/utils/pricing";
 
-function RedirectToStore() {
-  const router = useRouter();
-  useEffect(() => {
-    router.replace('/');
-  }, [router]);
-  return null;
-}
+
 
 
 
@@ -33,6 +30,8 @@ import { CheckoutAddressProvider, useCheckoutAddress } from "./CheckoutAddressCo
 import { generateEstimatePDF } from "@/lib/services/pdf-service";
 import { getPartnerInfo } from "@/lib/actions/draft-order";
 import { validateGSTINAction } from "@/lib/actions/gstin";
+// SuccessOverlay removed as per Swiggy 2026 single-screen model
+import { UpsellGrid } from "@/components/features/UpsellGrid";
 
 interface CheckoutLayoutClientProps {
   data: CheckoutData;
@@ -51,7 +50,7 @@ function CheckoutLayoutClientInner({
 }: CheckoutLayoutClientProps) {
   const router = useRouter();
   const { user: authUser } = useAuth();
-  const { clearDraftOrder } = useCart();
+  const { clearDraftOrder, addToDraftOrder } = useCart();
   const addressContext = useCheckoutAddress();
   const selectedAddressId = addressContext?.selectedAddressId ?? null;
 
@@ -63,9 +62,12 @@ function CheckoutLayoutClientInner({
   const [gstinValidation, setGstinValidation] = useState<'idle' | 'validating' | 'valid' | 'invalid'>('idle');
   const [gstinError, setGstinError] = useState<string | null>(null);
   const [businessName, setBusinessName] = useState<string | null>(null);
+  // WYSHKIT 2026: State for inline personalization interception
+  const [uploadOrder, setUploadOrder] = useState<any>(null);
 
   const [testCardHintExpanded, setTestCardHintExpanded] = useState(false);
   const paymentInitiatedRef = useRef(false);
+  const activeRazorpayOrderIdRef = useRef<string | null>(null);
   const { items, pricing, walletInfo } = data;
 
   const isTestMode = (process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID ?? '').startsWith('rzp_test_');
@@ -112,8 +114,15 @@ function CheckoutLayoutClientInner({
       businessName: businessName || undefined,
       billingAddress: currentAddress,
       gstin: gstin || undefined,
-      partner: partner || { name: 'Partner', address: 'Bangalore' },
+      partner: partner
+        ? {
+          name: partner.name,
+          address: partner.address || 'Bangalore, India',
+          gstin: partner.gstin || undefined,
+        }
+        : { name: 'Partner', address: 'Bangalore, India' },
       cart: {
+
         items: items.map((it: any) => ({
           itemName: it.name || "Item",
           quantity: it.quantity || 1,
@@ -136,6 +145,64 @@ function CheckoutLayoutClientInner({
     toast.success("Estimate downloaded");
   };
 
+
+  import { IdentityForm } from "@/components/customer/orders/IdentityForm";
+
+  const handleOrderSuccess = useCallback(async (order: any, orderId?: string, hasPersonalization?: boolean) => {
+    if (successRef.current) return;
+
+    // WYSHKIT 2026: Momentum-Resilience Hydration
+    // "Rich Data" from RPC or Realtime is prioritized.
+    // If the order has items, we use it directly. If not, we fetch.
+    let richOrder = order;
+    const finalOrderId = orderId || order?.id;
+
+    // Use the explicit flag if provided, otherwise check the order object (handles both cases)
+    let finalHasPersonalization = hasPersonalization ?? order?.has_personalization ?? order?.hasPersonalization;
+
+    // Check if the order object is "thin" (missing relations)
+    const isThinOrder = Boolean(finalOrderId && (!richOrder || !richOrder.order_items || richOrder.orderItems || richOrder.order_items?.length === 0));
+
+    if (isThinOrder) {
+      // Fallback: Fetch full details if we only got a thin notification
+      const { getOrderWithHistory } = await import('@/lib/actions/orders');
+      const { order: hydratedOrder } = await getOrderWithHistory(finalOrderId);
+      if (hydratedOrder) {
+        richOrder = hydratedOrder;
+        if (finalHasPersonalization === undefined) {
+          finalHasPersonalization = hydratedOrder.hasPersonalization || hydratedOrder.has_personalization;
+        }
+      }
+    }
+
+    // Swiggy 2026: Proactive Interception
+    // If order requires personalization, show THE IdentityForm INLINE before navigating.
+    if (finalHasPersonalization && richOrder) {
+      setUploadOrder(richOrder);
+      setIsProcessing(false);
+      return; // Stop redirection flow - waiting for user interaction
+    }
+
+    successRef.current = true;
+    setIsSuccess(true);
+    setIsProcessing(false);
+
+    // WYSHKIT 2026: Explicitly clear cart on client to stop staleness
+    // Wrap in try-catch to ensure navigation NEVER blocks
+    try {
+      await clearDraftOrder();
+    } catch (e) {
+      console.error("Failed to clear cart, proceeding anyway", e);
+    }
+
+    // Swiggy 2026: Immediate transition to the Order Heartbeat (Tracking Screen)
+    // No more "intermediary" screens. The tracker is the single source of truth.
+    if (finalOrderId) {
+      router.push(`/orders/${finalOrderId}?success=true`);
+    } else {
+      router.push('/orders');
+    }
+  }, [clearDraftOrder, router]);
 
   const handlePayment = useCallback(async () => {
     if (!authUser || !data.pricing) return;
@@ -163,6 +230,7 @@ function CheckoutLayoutClientInner({
           draftItems: data.items,
           pricing: data.pricing,
           appliedCoupon: data.appliedCoupon || undefined,
+          useWallet: data.useWallet,
           walletDiscount: data.pricing.walletDiscount || 0,
           deliveryInstructions: addressContext?.deliveryInstructions || undefined,
         }
@@ -173,6 +241,8 @@ function CheckoutLayoutClientInner({
       }
 
       const orderData = response.order;
+      activeRazorpayOrderIdRef.current = orderData.id;
+      setTrackingOrderId(orderData.id); // Enable Realtime Listener
 
       // WYSHKIT 2026: Strict Payment Flow - No Bypass Allowed
 
@@ -192,7 +262,7 @@ function CheckoutLayoutClientInner({
           amount: orderData.amount,
           currency: orderData.currency,
           name: 'Wyshkit',
-          description: `Order for ${data.items.length} item(s)`,
+          description: `Order from ${data.partnerName || 'Local Store'}`,
           order_id: orderData.id,
           handler: async (razorpayResponse: any) => {
             try {
@@ -206,27 +276,17 @@ function CheckoutLayoutClientInner({
               );
 
               if (verifyResponse.error) {
-                throw new Error(verifyResponse.error);
+                logger.error('Payment verification action failed', { error: verifyResponse.error });
+                // If it fails with a 500/Ambiguity error, the webhook/Realtime listener might also fail.
+                // We show a slightly more descriptive error but keep the door open for Realtime.
+                toast.error("Still verifying your order... please don't refresh.");
               }
 
-              setIsSuccess(true);
-              successRef.current = true;
-              setIsProcessing(false);
-
-              // WYSHKIT 2026: Explicitly clear cart on client to stop staleness
-              await clearDraftOrder();
-
-              // WYSHKIT 2026: Instant Redirect (No artificial delay)
-              if (verifyResponse.orderId) {
-                const hasPers = (verifyResponse as any).hasPersonalization;
-                if (hasPers) {
-                  router.push(`/orders/${verifyResponse.orderId}/upload`);
-                } else {
-                  router.push(`/orders/${verifyResponse.orderId}`);
-                }
-              } else {
-                toast.success('Payment verified!');
-                router.push('/orders');
+              // WYSHKIT 2026: Direct Hydration from RPC Response
+              // If verification succeeded and returned an order object (from enriched RPC or fetch), use it immediately!
+              if (verifyResponse.success && !successRef.current) {
+                // The enriched RPC/Action returns the FULL order object in `verifyResponse.order`
+                handleOrderSuccess(verifyResponse.order || null, verifyResponse.orderId, verifyResponse.hasPersonalization);
               }
             } catch (err) {
               toast.error(err instanceof Error ? err.message : 'Payment verification failed');
@@ -247,34 +307,8 @@ function CheckoutLayoutClientInner({
           }
         };
 
-        const razorpay = new RazorpayConstructor(options);
-        razorpay.open();
-
-        // WYSHKIT 2026: 15s Reliability Fallback
-        // In case the Razorpay handler doesn't fire but payment succeeded (webhook won)
-        // orderData.id is Razorpay order_id; look up by razorpay_order_id to get Supabase order.
-        setTimeout(async () => {
-          if (!successRef.current && paymentInitiatedRef.current) {
-            toast.info('Finalizing your order...');
-            const { getOrderByRazorpayOrderId } = await import('@/lib/actions/orders');
-            for (let i = 0; i < 10; i++) {
-              const { data: order } = await getOrderByRazorpayOrderId(orderData.id);
-              if (order && order.payment_status === 'paid') {
-                setIsSuccess(true);
-                successRef.current = true;
-                setIsProcessing(false);
-                await clearDraftOrder();
-                router.push(`/orders/${order.id}`);
-                return;
-              }
-              await new Promise(r => setTimeout(r, 3000));
-            }
-            // If still not found, let user know
-            toast.error('Taking longer than expected. Please check your orders page.');
-            setIsProcessing(false);
-            paymentInitiatedRef.current = false;
-          }
-        }, 15000);
+        const rzp = new RazorpayConstructor(options);
+        rzp.open();
       } else {
         toast.error('Payment gateway not loaded. Please refresh and try again.');
         setIsProcessing(false);
@@ -285,7 +319,55 @@ function CheckoutLayoutClientInner({
       setIsProcessing(false);
       paymentInitiatedRef.current = false;
     }
-  }, [authUser, data.pricing, data.items, data.appliedCoupon, data.useWallet, selectedAddressId, isProcessing, isSuccess, gstin, addressContext?.deliveryInstructions, router]);
+  }, [authUser, data.pricing, data.items, data.appliedCoupon, data.useWallet, selectedAddressId, isProcessing, isSuccess, gstin, addressContext?.deliveryInstructions, router, clearDraftOrder, handleOrderSuccess]);
+
+  // WYSHKIT 2026: Precise Realtime Tracking (Data comes to user)
+  // We track the specific Razorpay Order ID to avoid noise and auth-context flakiness.
+  const [trackingOrderId, setTrackingOrderId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!trackingOrderId || successRef.current) return;
+
+    logger.info('Initializing Realtime Listener for Order', { razorpayOrderId: trackingOrderId });
+
+    const supabase = createClient();
+    const channel = supabase
+      .channel(`checkout-${trackingOrderId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*', // Listen for INSERT (creation) or UPDATE (status change)
+          schema: 'public',
+          table: 'orders',
+          filter: `razorpay_order_id=eq.${trackingOrderId}` // Point-to-Point Precision
+        },
+        async (payload) => {
+          const newOrder = payload.new as any;
+
+          // Double check it matches (redundant but safe)
+          if (newOrder && !successRef.current && newOrder.razorpay_order_id === trackingOrderId) {
+
+            // WYSHKIT 2026: Resilience Fix - Accept ANY valid status that implies success
+            // 'PLACED' is the initial success state. 'CONFIRMED'/'PAID' are upgrades.
+            const isValidSuccess =
+              newOrder.status === 'PLACED' ||
+              newOrder.status === 'CONFIRMED' ||
+              newOrder.status === 'PAID' ||
+              (newOrder.payment_status === 'PAID' || newOrder.payment_status === 'captured');
+
+            if (isValidSuccess) {
+              logger.info('Order confirmed via Realtime', { orderId: newOrder.id, status: newOrder.status });
+              handleOrderSuccess(newOrder, newOrder.id, newOrder.has_personalization);
+            }
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [trackingOrderId, handleOrderSuccess]);
 
 
   // Move pricing check into JSX to allow isSuccess overlay to render even with null pricing
@@ -325,18 +407,40 @@ function CheckoutLayoutClientInner({
                 <ChevronLeft className="size-6" />
               </button>
               <div className="flex flex-col">
-                <h2 className="text-lg font-bold text-zinc-900 leading-tight tracking-tight">Secure Transaction</h2>
-                <p className="text-[11px] font-bold text-zinc-400 leading-tight">Delivered from local stores</p>
+                <h2 className="text-lg font-bold text-zinc-900 leading-tight tracking-tight">{data.partnerName || 'Checkout'}</h2>
+                <p className="text-[11px] font-bold text-zinc-400 leading-tight">{data.partnerCity || 'Local Store'}</p>
               </div>
             </div>
           </header>
 
           <main className="flex-1 overflow-y-auto">
             <div className="flex flex-col px-5 md:px-0 py-4 divide-y divide-zinc-100 max-w-2xl mx-auto w-full">
-              {/* WYSHKIT 2026: Cart always visible */}
               <section className="pb-6">
                 <CartSlot initialHydratedItems={data.items as any} />
               </section>
+
+              {/* WYSHKIT 2026: Consolidation of Upsells */}
+              {data.upsellItems && data.upsellItems.length > 0 && (
+                <section className="py-2">
+                  <UpsellGrid
+                    items={data.upsellItems as any}
+                    title="Add more from this store"
+                    onAdd={async (item) => {
+                      try {
+                        const result = await addToDraftOrder(item.id, null, { enabled: false }, [], 1);
+                        if (result.success) {
+                          toast.success(`Added ${item.name}`);
+                          router.refresh();
+                        } else {
+                          toast.error(result.error || 'Failed to add item');
+                        }
+                      } catch (error) {
+                        toast.error('Failed to add item. Please try again.');
+                      }
+                    }}
+                  />
+                </section>
+              )}
 
               {/* WYSHKIT 2026: Address always visible so user can select/add one */}
               <Suspense fallback={<div className="py-8 flex items-center justify-center"><Loader2 className="size-5 animate-spin text-zinc-400" /></div>}>
@@ -346,7 +450,7 @@ function CheckoutLayoutClientInner({
                     currentAddress={data.addresses?.find(a => a.id === selectedAddressId) as any}
                   />
                   {selectedAddressId && (
-                    <p className="text-xs text-zinc-500">Estimated delivery: 1–3 business days</p>
+                    <p className="text-xs text-zinc-500 font-bold uppercase tracking-tight">Delivery today by 6 PM</p>
                   )}
                   {selectedAddressId && (
                     <div>
@@ -393,17 +497,17 @@ function CheckoutLayoutClientInner({
                   <div className="space-y-4">
                     <div className="flex items-center justify-between pb-3 border-b border-zinc-100">
                       <span className="text-sm font-bold text-zinc-900">Bill Summary</span>
-                      <span className="text-lg font-black text-zinc-950 tabular-nums">₹{pricing.total.toFixed(0)}</span>
+                      <span className="text-lg font-black text-zinc-950 tabular-nums">{formatCurrency(pricing.total)}</span>
                     </div>
                     <div className="space-y-3">
                       <div className="flex justify-between text-sm text-zinc-600">
                         <span>Subtotal ({items.length} item{items.length > 1 ? 's' : ''})</span>
-                        <span className="tabular-nums font-semibold text-zinc-950">₹{pricing.subtotal.toFixed(0)}</span>
+                        <span className="tabular-nums font-semibold text-zinc-950">{formatCurrency(pricing.subtotal)}</span>
                       </div>
                       {personalizationTotal > 0 && (
                         <div className="flex justify-between text-sm text-zinc-600">
                           <span>Personalization</span>
-                          <span className="tabular-nums font-semibold text-zinc-950">₹{personalizationTotal.toFixed(0)}</span>
+                          <span className="tabular-nums font-semibold text-zinc-950">{formatCurrency(personalizationTotal)}</span>
                         </div>
                       )}
                       <div className="flex justify-between text-sm text-zinc-600">
@@ -412,107 +516,118 @@ function CheckoutLayoutClientInner({
                           Delivery
                           {pricing.deliveryFee === 0 && <span className="text-[10px] text-emerald-600 font-bold px-1.5 py-0.5 bg-emerald-50 rounded-md">FREE</span>}
                         </span>
-                        <span className="tabular-nums font-semibold text-zinc-950">{pricing.deliveryFee === 0 ? '₹0' : `₹${pricing.deliveryFee.toFixed(0)}`}</span>
+                        <span className="tabular-nums font-semibold text-zinc-950">{pricing.deliveryFee === 0 ? 'FREE' : formatCurrency(pricing.deliveryFee)}</span>
                       </div>
                       <div className="flex justify-between text-sm text-zinc-600">
                         <span>Platform fee</span>
-                        <span className="tabular-nums font-semibold text-zinc-950">₹{pricing.platformFee.toFixed(0)}</span>
+                        <span className="tabular-nums font-semibold text-zinc-950">{formatCurrency(pricing.platformFee)}</span>
                       </div>
                       <div className="flex justify-between text-sm text-zinc-600">
                         <span>GST (18%)</span>
-                        <span className="tabular-nums font-semibold text-zinc-950">₹{pricing.gst.toFixed(0)}</span>
+                        <span className="tabular-nums font-semibold text-zinc-950">{formatCurrency(pricing.gst)}</span>
                       </div>
                     </div>
 
                     <div className="pt-4 border-t border-zinc-100">
                       <div className="flex justify-between items-center">
                         <span className="text-lg font-bold text-zinc-950">Sum to pay</span>
-                        <span className="text-xl font-black text-zinc-950 tabular-nums">₹{pricing.total.toFixed(0)}</span>
+                        <span className="text-xl font-black text-zinc-950 tabular-nums">{formatCurrency(pricing.total)}</span>
                       </div>
                       {((pricing.discount || 0) + (pricing.walletDiscount || 0)) > 0 && (
                         <p className="text-xs font-semibold text-emerald-600 mt-1">
-                          You saved ₹{((pricing.discount || 0) + (pricing.walletDiscount || 0)).toFixed(0)}
+                          You saved {formatCurrency((pricing.discount || 0) + (pricing.walletDiscount || 0))}
                         </p>
                       )}
                     </div>
 
                     <div className="pt-4 space-y-3">
-                      <div className="p-3 bg-zinc-50 rounded-xl border border-zinc-100 italic">
-                        <p className="text-[10px] text-zinc-500 leading-normal">
-                          Note: All products are available with optional personalization. Personalized items cannot be returned unless received damaged or incorrect. 100% advance payment required for order confirmation.
-                        </p>
-                      </div>
-                      {!gstinExpanded ? (
-                        <button
-                          type="button"
-                          onClick={() => setGstinExpanded(true)}
-                          className="text-[10px] text-zinc-400 font-semibold underline decoration-zinc-200 hover:text-zinc-600"
-                        >
-                          Add GSTIN (optional for tax credit)
-                        </button>
-                      ) : (
-                        <div className="space-y-1">
-                          <div className="relative">
-                            <input
-                              type="text"
-                              inputMode="text"
-                              autoCapitalize="characters"
-                              autoCorrect="off"
-                              value={gstin}
-                              onChange={(e) => {
-                                setGstin(e.target.value.toUpperCase());
-                                if (gstinValidation !== 'idle') setGstinValidation('idle');
-                                setGstinError(null);
-                              }}
-                              onBlur={handleGstinBlur}
-                              placeholder="GSTIN (Optional for Tax Credit)"
-                              className={cn(
-                                "w-full h-10 pl-3 pr-9 bg-zinc-50 border rounded-xl text-[13px] font-semibold placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-zinc-900/5 transition-all",
-                                gstinValidation === 'invalid' ? "border-red-300" : "border-zinc-200"
-                              )}
-                            />
-                            {gstinValidation === 'validating' && (
-                              <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 size-3.5 text-zinc-400 animate-spin" />
-                            )}
-                            {gstinValidation === 'valid' && (
-                              <div className="absolute right-3 top-1/2 -translate-y-1/2 bg-emerald-500 rounded-full p-0.5">
-                                <Check className="size-2.5 text-white" />
+                      <div className="pt-6 space-y-4">
+                        {/* WYSHKIT 2026: Premium Business Identity Slot - Inline & High Trust */}
+                        <div className="p-4 rounded-2xl border bg-zinc-50/50 border-zinc-100">
+                          <div className="space-y-3">
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-2">
+                                <ShieldCheck className="size-4 text-zinc-900" />
+                                <span className="text-[10px] font-bold uppercase tracking-widest text-zinc-900">Tax Identity (GSTIN)</span>
+                              </div>
+                              {/* Swiggy 2026: Cleaner, text-only save message */}
+                              <span className="text-[10px] font-medium text-emerald-600">Save 18%</span>
+                            </div>
+                            <div className="relative">
+                              <input
+                                type="text"
+                                value={gstin}
+                                onChange={(e) => {
+                                  setGstin(e.target.value.toUpperCase());
+                                  if (gstinValidation !== 'idle') setGstinValidation('idle');
+                                  setGstinError(null);
+                                }}
+                                onBlur={handleGstinBlur}
+                                placeholder="Enter 15-digit GSTIN"
+                                className={cn(
+                                  "w-full h-10 pl-3 pr-10 bg-white border rounded-lg text-xs font-bold placeholder:text-zinc-300 focus:outline-none transition-all",
+                                  gstinValidation === 'invalid' ? "border-rose-200 bg-rose-50" : "border-zinc-200 focus:border-zinc-900"
+                                )}
+                              />
+                              <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                                {gstinValidation === 'validating' && <Loader2 className="size-3 text-zinc-400 animate-spin" />}
+                                {gstinValidation === 'valid' && <Check className="size-3 text-emerald-500 stroke-[3]" />}
+                                {gstinValidation === 'invalid' && <XCircle className="size-3 text-rose-500" />}
+                              </div>
+                            </div>
+                            {businessName && (
+                              <div className="flex items-center gap-1.5 animate-in fade-in slide-in-from-top-1">
+                                <Check className="size-3 text-emerald-600" />
+                                <span className="text-[10px] font-bold text-emerald-700 uppercase tracking-tight">{businessName} verified</span>
                               </div>
                             )}
-                            {gstinValidation === 'invalid' && (
-                              <XCircle className="absolute right-3 top-1/2 -translate-y-1/2 size-3.5 text-red-500" />
-                            )}
+                            {gstinError && <p className="text-[10px] text-rose-600 font-bold">{gstinError}</p>}
+
+                            {/* Inline Estimate Action */}
+                            <div className="flex items-center justify-between pt-1">
+                              <p className="text-[10px] text-zinc-400">Claims input tax credit</p>
+                              <button
+                                type="button"
+                                onClick={handleDownloadEstimate}
+                                className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-zinc-900 hover:underline transition-all"
+                              >
+                                <FileText className="size-3" />
+                                Get Estimate
+                              </button>
+                            </div>
                           </div>
-                          {businessName && (
-                            <p className="text-[10px] text-emerald-600 font-bold mt-1 px-2 py-0.5 bg-emerald-50 rounded-lg inline-block">
-                              {businessName}
-                            </p>
-                          )}
-                          {gstinError && <p className="text-[10px] text-red-600 font-medium">{gstinError}</p>}
                         </div>
-                      )}
-                      <button
-                        type="button"
-                        onClick={handleDownloadEstimate}
-                        className="text-[10px] text-zinc-400 font-semibold underline decoration-zinc-200 hover:text-zinc-600 block"
-                      >
-                        Download estimate (PDF)
-                      </button>
+
+                        <div className="p-4 bg-zinc-50 rounded-2xl border border-zinc-100/80">
+                          <div className="flex items-start gap-3">
+                            <Info className="size-4 text-zinc-400 mt-0.5 shrink-0" />
+                            <p className="text-[10px] text-zinc-500 leading-normal font-medium italic">
+                              Personalized items cannot be returned unless received damaged. 100% advance payment required. Estimated delivery 1-3 business days.
+                            </p>
+                          </div>
+                        </div>
+                      </div>
                     </div>
                   </div>
                 )}
               </section>
 
+              {/* Security badge (Unified) */}
+              <div className="px-3 py-8 flex items-center justify-center gap-2 opacity-30">
+                <ShieldCheck className="size-3 text-zinc-400" />
+                <span className="text-[9px] font-bold text-zinc-400 uppercase tracking-widest">Secured by Razorpay</span>
+              </div>
             </div>
           </main>
 
           {/* WYSHKIT 2026: Footer - Adjusted for null pricing */}
-          <footer className="sticky bottom-0 bg-white border-t border-zinc-100 z-20">
+          {/* WYSHKIT 2026: Footer - Adjusted for null pricing */}
+          <footer className="sticky bottom-0 bg-white/80 backdrop-blur-xl border-t border-zinc-100 z-20">
             <div className="max-w-2xl mx-auto w-full px-4 md:px-0">
               <div className="flex items-center justify-between gap-4 py-2.5 pb-[max(0.625rem,env(safe-area-inset-bottom))]">
                 <div className="flex flex-col">
                   <span className="text-xl font-bold text-zinc-950 tabular-nums">
-                    {pricing ? `₹${pricing.total.toFixed(0)}` : '—'}
+                    {pricing ? formatCurrency(pricing.total) : '—'}
                   </span>
                   <span className="text-[10px] text-zinc-400 font-semibold">
                     {pricing ? 'Bill details above' : 'Waiting for address'}
@@ -533,9 +648,21 @@ function CheckoutLayoutClientInner({
                       <span className="text-xs font-semibold text-zinc-400">Select delivery address</span>
                     </div>
                   ) : !pricing ? (
-                    <div className="w-full h-16 bg-zinc-50 rounded-[24px] flex items-center justify-center border border-zinc-100">
-                      <Loader2 className="size-5 animate-spin text-zinc-300" />
-                    </div>
+                    <button
+                      onClick={() => {
+                        triggerHaptic(HapticPattern.WARNING);
+                        router.refresh();
+                      }}
+                      className="w-full h-16 bg-rose-50 rounded-[24px] flex items-center justify-center border border-rose-100 px-4 text-center hover:bg-rose-100 transition-colors group"
+                    >
+                      <div className="flex flex-col items-center">
+                        <div className="flex items-center gap-1.5 mb-0.5">
+                          <RefreshCw className="size-3 text-rose-600 group-active:animate-spin" />
+                          <span className="text-[10px] font-black text-rose-600 uppercase tracking-widest">Pricing Engine Offline</span>
+                        </div>
+                        <span className="text-[9px] font-bold text-rose-500/70 uppercase">Tap to retry calculation</span>
+                      </div>
+                    </button>
                   ) : (
                     <div className="flex-1">
                       <div className="hidden md:block">
@@ -552,7 +679,7 @@ function CheckoutLayoutClientInner({
                           {isProcessing ? (
                             <Loader2 className="size-5 animate-spin" />
                           ) : (
-                            <span className="text-sm font-bold">Place Order • ₹{pricing.total.toFixed(0)}</span>
+                            <span className="text-sm font-bold">Place Order • {formatCurrency(pricing.total)}</span>
                           )}
                         </button>
                       </div>
@@ -570,76 +697,67 @@ function CheckoutLayoutClientInner({
                   )}
                 </div>
               </div>
-              {isTestMode && authUser && selectedAddressId && (
-                <button
-                  type="button"
-                  onClick={() => setTestCardHintExpanded(!testCardHintExpanded)}
-                  className="w-full mt-2 py-2 flex items-center justify-center gap-2 text-[10px] font-medium text-zinc-400 hover:text-zinc-600 transition-colors"
-                >
-                  <CreditCard className="size-3" />
-                  Razorpay test mode
-                  {testCardHintExpanded ? <ChevronUp className="size-3" /> : <ChevronDown className="size-3" />}
-                </button>
-              )}
-              {isTestMode && authUser && selectedAddressId && testCardHintExpanded && (
-                <div className="mt-1 px-3 py-2 rounded-lg bg-amber-50 border border-amber-100 text-[10px] text-amber-800 space-y-0.5">
-                  <p className="font-semibold">Test card: 4111 1111 1111 1111</p>
-                  <p className="text-amber-700">Expiry: any future date · CVV: any 3 digits</p>
-                </div>
-              )}
+              {/* WYSHKIT 2026: Test Card Hint HIDDEN for Production Feel */}
+              {/* {isTestMode && authUser && selectedAddressId && ( ... )} */}
             </div>
           </footer>
         </div>
       )}
 
-      {(isProcessing || isSuccess) && (
-        <div className="absolute inset-0 bg-white/95 backdrop-blur-md z-[100] flex flex-col items-center justify-center p-8 text-center space-y-6">
-          {isSuccess && <Confetti />}
-          <div className="relative">
-            <div className={cn(
-              "size-20 rounded-full border-4 flex items-center justify-center shrink-0",
-              isSuccess ? "border-emerald-100 bg-emerald-50" : "border-zinc-50"
-            )}>
-              {isSuccess ? (
-                <div className="scale-in">
-                  <Check className="size-10 text-emerald-600" />
-                </div>
-              ) : (
-                <Loader2 className="size-8 text-zinc-900 animate-spin" />
-              )}
-            </div>
-          </div>
-          <div className="space-y-2">
-            <h3 className="text-xl font-bold text-zinc-900 tracking-tight">
-              {isSuccess ? "Order Placed Successfully!" : "Securing your order"}
-            </h3>
-            <p className="text-sm font-medium text-zinc-500 leading-snug max-w-[240px]">
-              {isSuccess
-                ? "Redirecting you to tracking..."
-                : "We're processing your transaction securely. Please don't close this window."
-              }
-            </p>
+      {/* WYSHKIT 2026: Proactive Success Intercept */}
+      {(isSuccess || uploadOrder) && (
+        <div className="fixed inset-0 z-[100] bg-white flex flex-col items-center justify-start overflow-y-auto px-6 py-12">
+          <Confetti />
 
-            {/* WYSHKIT 2026: Immediate Manual Control (Anti-Hang) */}
-            {isSuccess && (
-              <div className="pt-4 animate-in fade-in zoom-in duration-300">
-                <button
-                  onClick={() => router.push('/orders')}
-                  className="px-6 py-3 bg-zinc-900 text-white text-sm font-bold rounded-xl shadow-lg shadow-zinc-900/10 active:scale-95 transition-all"
-                >
-                  View Order
-                </button>
+          <div className="w-full max-w-lg mx-auto space-y-8 animate-in cubic-bezier(0.19, 1, 0.22, 1) slide-in-from-bottom-12 duration-1000">
+            <div className="text-center space-y-4">
+              <div className="size-24 bg-zinc-900 rounded-[32px] flex items-center justify-center mx-auto shadow-2xl shadow-zinc-200">
+                <Check className="size-10 text-white" />
               </div>
-            )}
+              <div className="space-y-1">
+                <h2 className="text-3xl font-black text-zinc-950 tracking-tighter uppercase">Payment Successful</h2>
+                <p className="text-[11px] font-bold text-zinc-400 uppercase tracking-widest">Order #{uploadOrder?.order_number || data.partnerName}</p>
+              </div>
+            </div>
 
-            {/* WYSHKIT 2026: Recovery Link (Prevent hang frustration) */}
-            {!isSuccess && (
-              <div className="pt-2 animate-in fade-in duration-1000 delay-500">
+            {uploadOrder ? (
+              <div className="bg-white rounded-[40px] border border-zinc-100 p-1 shadow-sm">
+                <div className="p-6 space-y-2 border-b border-zinc-50">
+                  <h3 className="text-xl font-black text-zinc-900 tracking-tighter uppercase">Almost there!</h3>
+                  <p className="text-sm text-zinc-500 font-medium">Please provide the remaining details for your personalization.</p>
+                </div>
+                <div className="p-6">
+                  <IdentityForm
+                    order={uploadOrder}
+                    onSubmitted={() => {
+                      setUploadOrder(null);
+                      setIsSuccess(true);
+                      successRef.current = true;
+
+                      // Immediate redirect after submitting details
+                      const finalId = uploadOrder.id;
+                      setTimeout(() => {
+                        router.push(`/orders/${finalId}?success=true`);
+                      }, 1000);
+                    }}
+                  />
+                </div>
+              </div>
+            ) : (
+              <div className="text-center py-12 space-y-6">
+                <div className="p-6 bg-emerald-50 rounded-3xl border border-emerald-100 animate-pulse">
+                  <p className="text-sm font-bold text-emerald-600">Securely redirecting to your tracker...</p>
+                </div>
+
+                <div className="h-1 bg-zinc-100 rounded-full overflow-hidden w-40 mx-auto">
+                  <div className="h-full bg-zinc-900 animate-[loading-bar_2s_ease-in-out_infinite]" />
+                </div>
+
                 <button
-                  onClick={() => router.push('/orders')}
-                  className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest hover:text-zinc-900 transition-colors"
+                  onClick={() => window.location.href = `/orders/${data.items[0]?.orderId || ''}`}
+                  className="text-[10px] font-bold text-zinc-400 hover:text-zinc-600 underline underline-offset-4 decoration-zinc-300 uppercase tracking-widest"
                 >
-                  Taking too long? Track order
+                  Click here if you are not redirected
                 </button>
               </div>
             )}

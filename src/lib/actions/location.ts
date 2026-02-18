@@ -81,6 +81,17 @@ export async function getServerLocation(): Promise<LocationData> {
         }
 
         // 4. Fallback default
+        // WYSHKIT 2026: Dev Experience - Default to Bangalore if no location set
+        if (process.env.NODE_ENV === 'development') {
+            return {
+                name: 'Bangalore (Dev)',
+                address: 'Koramangala, Bangalore',
+                pincode: '560034',
+                lat: 12.9716,
+                lng: 77.5946
+            }
+        }
+
         return { name: 'Select location', address: '', pincode: '' }
     } catch (error) {
         return { name: 'Select location', address: '', pincode: '' }
@@ -97,18 +108,18 @@ export async function setLocationCookies(lat: number, lng: number, name: string)
 
 /** Get address components from coordinates (for pre-filling address form) */
 export async function getAddressFromCoords(lat: number, lng: number): Promise<{ city?: string; state?: string; pincode?: string; formattedAddress?: string; error?: string }> {
-  try {
-    const result = await GoogleMapsService.reverseGeocode(lat, lng);
-    if (!result) return { error: 'Could not resolve location' };
-    return {
-      city: result.city,
-      state: result.state,
-      pincode: result.pincode,
-      formattedAddress: result.formattedAddress,
-    };
-  } catch (e) {
-    return { error: 'Failed to resolve location' };
-  }
+    try {
+        const result = await GoogleMapsService.reverseGeocode(lat, lng);
+        if (!result) return { error: 'Could not resolve location' };
+        return {
+            city: result.city,
+            state: result.state,
+            pincode: result.pincode,
+            formattedAddress: result.formattedAddress,
+        };
+    } catch (e) {
+        return { error: 'Failed to resolve location' };
+    }
 }
 
 /** Set location from coordinates: geocode lat/lng to city/pincode, set cookies, return location name */
@@ -117,6 +128,26 @@ export async function setLocationFromCoords(lat: number, lng: number): Promise<{
         const result = await GoogleMapsService.reverseGeocode(lat, lng);
         if (!result) return { success: false, error: 'Could not resolve location' };
         const name = result.city ? `${result.city}${result.pincode ? ` ${result.pincode}` : ''}` : result.formattedAddress || 'Current location';
+        await setLocationCookies(lat, lng, name);
+        return { success: true, name };
+    } catch (e) {
+        return { success: false, error: 'Failed to set location' };
+    }
+}
+/** Search for places using Google Places API */
+export async function searchPlaces(query: string) {
+    return await GoogleMapsService.searchPlaces(query);
+}
+
+/** Set location from a Google Place ID */
+export async function setLocationFromPlaceId(placeId: string): Promise<{ success: boolean; name?: string; error?: string }> {
+    try {
+        const details = await GoogleMapsService.getPlaceDetails(placeId);
+        if (!details || !details.geometry?.location) return { success: false, error: 'Could not get place details' };
+
+        const { lat, lng } = details.geometry.location;
+        const name = details.name || details.formatted_address || 'Selected location';
+
         await setLocationCookies(lat, lng, name);
         return { success: true, name };
     } catch (e) {

@@ -25,7 +25,7 @@ const STATUS_TABS: { id: StatusTab; label: string; statuses: OrderStatus[] }[] =
   {
     id: 'preparing',
     label: 'Preparing',
-    statuses: [ORDER_STATUS.CONFIRMED, ORDER_STATUS.DETAILS_RECEIVED, ORDER_STATUS.PREVIEW_READY, ORDER_STATUS.APPROVED, ORDER_STATUS.IN_PRODUCTION]
+    statuses: [ORDER_STATUS.CONFIRMED, ORDER_STATUS.DETAILS_RECEIVED, ORDER_STATUS.PREVIEW_READY, ORDER_STATUS.REVISION_REQUESTED, ORDER_STATUS.APPROVED, ORDER_STATUS.IN_PRODUCTION]
   },
   {
     id: 'ready',
@@ -82,7 +82,7 @@ export function OrderQueue({ initialOrders, partnerId }: OrderQueueProps) {
             // Fetch full relation data for the new order
             const { data: newOrder } = await supabase
               .from('orders')
-              .select(`*, order_items (*)`)
+              .select(`*, order_items (*), order_personalization (*)`)
               .eq('id', payload.new.id)
               .single();
 

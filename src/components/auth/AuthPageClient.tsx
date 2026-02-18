@@ -19,6 +19,7 @@ interface AuthPageClientProps {
   description?: string;
   hideHeader?: boolean;
   hideBack?: boolean;
+  onComplete?: () => void;
 }
 
 /**
@@ -32,6 +33,7 @@ export function AuthPageClient({
   description = "Enter your phone number to continue",
   hideHeader = false,
   hideBack = false,
+  onComplete,
 }: AuthPageClientProps) {
   const router = useRouter();
   const { signInWithPhone, verifyOTP } = useAuth();
@@ -91,9 +93,13 @@ export function AuthPageClient({
         // WYSHKIT 2026: Ensure session is propagated before redirect
         setLoading(false);
 
-        // WYSHKIT 2026: Intent-Based Navigation - Redirect to returnUrl
-        router.push(returnUrl);
-        router.refresh();
+        // WYSHKIT 2026: Intent-Based Navigation
+        if (onComplete) {
+          onComplete();
+        } else {
+          router.push(returnUrl);
+          router.refresh();
+        }
       } else {
         setError(result.error || "Invalid OTP");
         setLoading(false);

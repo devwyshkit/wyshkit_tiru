@@ -20,40 +20,32 @@ function validateEnv() {
 }
 
 export async function createClient() {
-  try {
-    const { cookies } = await import('next/headers')
-    const cookieStore = await cookies()
-    const { url, key } = validateEnv()
+  const { cookies } = await import('next/headers')
+  const cookieStore = await cookies()
+  const { url, key } = validateEnv()
 
-    return createServerClient<Database>(
-      url,
-      key,
-      {
-        cookies: {
-          getAll() {
-            return cookieStore.getAll()
-          },
-          setAll(cookiesToSet) {
-            try {
-              cookiesToSet.forEach(({ name, value, options }) =>
-                cookieStore.set(name, value, options)
-              )
-            } catch {
-              // The `setAll` method was called from a Server Component.
-              // This can be ignored if you have middleware refreshing
-              // user sessions.
-            }
-          },
+  return createServerClient<Database>(
+    url,
+    key,
+    {
+      cookies: {
+        getAll() {
+          return cookieStore.getAll()
         },
-      }
-    )
-  } catch (error) {
-    // Re-throw with context for better error messages
-    if (error instanceof Error && error.message.includes('Missing required environment variables')) {
-      throw error
+        setAll(cookiesToSet) {
+          try {
+            cookiesToSet.forEach(({ name, value, options }) =>
+              cookieStore.set(name, value, options)
+            )
+          } catch {
+            // The `setAll` method was called from a Server Component.
+            // This can be ignored if you have middleware refreshing
+            // user sessions.
+          }
+        },
+      },
     }
-    throw new Error(`Failed to create Supabase client: ${error instanceof Error ? error.message : 'Unknown error'}`)
-  }
+  )
 }
 export async function createAdminClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL

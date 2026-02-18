@@ -49,5 +49,31 @@ export const GoogleMapsService = {
             logger.error('GoogleMapsService error', error);
             return null;
         }
+    },
+    searchPlaces: async (query: string): Promise<any[]> => {
+        try {
+            const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_KEY;
+            if (!apiKey) return [];
+            const url = `https://maps.googleapis.com/maps/api/place/autocomplete/json?input=${encodeURIComponent(query)}&key=${apiKey}&components=country:in`;
+            const res = await fetch(url);
+            const data = await res.json();
+            if (data.status !== 'OK') return [];
+            return data.predictions;
+        } catch {
+            return [];
+        }
+    },
+    getPlaceDetails: async (placeId: string): Promise<any> => {
+        try {
+            const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_KEY;
+            if (!apiKey) return null;
+            const url = `https://maps.googleapis.com/maps/api/place/details/json?place_id=${placeId}&key=${apiKey}`;
+            const res = await fetch(url);
+            const data = await res.json();
+            if (data.status !== 'OK') return null;
+            return data.result;
+        } catch {
+            return null;
+        }
     }
 };

@@ -1,6 +1,6 @@
 import { Suspense } from "react";
 import Script from "next/script";
-import { CheckoutLayoutWrapper } from "@/components/customer/checkout/CheckoutLayoutWrapper";
+import { CheckoutLayoutClient } from "@/components/customer/checkout/CheckoutLayoutClient";
 import { getCheckoutData } from "@/lib/actions/checkout";
 import { CheckoutErrorBoundaryWithRouter } from "@/components/error/CheckoutErrorBoundary";
 
@@ -51,13 +51,13 @@ async function AsyncCheckoutContent({
   const checkoutData = await getCheckoutData();
 
   return (
-    <CheckoutLayoutWrapper
-      checkoutData={checkoutData}
+    <CheckoutLayoutClient
+      data={checkoutData}
     >
       <Suspense fallback={null}>
         {children}
       </Suspense>
-    </CheckoutLayoutWrapper>
+    </CheckoutLayoutClient>
   );
 }
 

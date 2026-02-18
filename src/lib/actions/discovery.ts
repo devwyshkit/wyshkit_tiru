@@ -2,6 +2,7 @@
 
 import { createClient } from '@/lib/supabase/server';
 import { logger } from '@/lib/logging/logger';
+import { logError } from '@/lib/utils/error-handler';
 import { DBPartner, DBItem } from '@/lib/supabase/types';
 import { Database } from '@/lib/supabase/database.types';
 import { MappedPartner } from '@/lib/types/partner';
@@ -80,8 +81,10 @@ function mapPartner(p: DBRowPartner): MappedPartner {
     imageUrl: p.image_url || p.logo_url || '/images/logo.png',
     rating: p.rating || 0,
     city: p.city,
-    prepHours: p.prep_hours || p.prepHours || 24,
-    deliveryFee: p.delivery_fee || p.deliveryFee || 0,
+    // WYSHKIT 2026: Hyperlocal first. 24h is a legacy anti-pattern. 
+    // Defaulting to 45 mins (0.75h) if not specified.
+    prepHours: p.prep_hours || p.prepHours || 0.75,
+    deliveryFee: p.delivery_fee || p.deliveryFee || 40,
     slug: p.slug,
     businessType: p.business_type || 'Store',
     isOnline: p.is_online ?? true,
@@ -115,74 +118,82 @@ export async function getNearbyDiscovery(lat: number, lng: number, radiusKm: num
     partner_id: item.partner_id,
     partner_name: item.businessName || item.partner_name,
     rating: item.rating,
-    is_online: item.is_online,
-    has_personalization: item.has_personalization
+    is_online: (item as any).is_online,
+    has_personalization: (item as any).has_personalization,
+    distance_km: item.distance_km
   }));
   return { items, error: null };
 }
 
 export async function getHomeDiscovery(lat?: number, lng?: number) {
-  const supabase = await createClient();
+  try {
+    const supabase = await createClient();
 
-  // Categories
-  // WYSHKIT 2026: Cast to any because 'categories' table is missing from generated types
-  const { data: categories } = await (supabase as any)
-    .from('categories')
-    .select('id, name, slug, image_url, display_order')
-    .eq('is_active', true)
-    .order('display_order');
+    // Categories
+    const { data: categories, error: catError } = await (supabase as any)
+      .from('categories')
+      .select('id, name, slug, image_url, display_order')
+      .eq('is_active', true)
+      .order('display_order');
 
-  const hour = new Date().getHours();
-  let timeContext = 'Fresh';
-
-  if (hour >= 5 && hour < 12) timeContext = 'Morning';
-  else if (hour >= 12 && hour < 17) timeContext = 'Daylight';
-  else if (hour >= 17 && hour < 21) timeContext = 'Evening';
-  else if (hour >= 21 || hour < 5) timeContext = 'Night';
-
-  let trendingItems: ReturnType<typeof mapTrendingItem>[] | undefined;
-
-  if (lat && lng) {
-    const { data: nearbyItems, error } = await (supabase as any).rpc('get_nearby_items', {
-      user_lat: lat,
-      user_lng: lng,
-      radius_km: 10
-    });
-
-    if (!error && nearbyItems && (nearbyItems as any[]).length > 0) {
-      trendingItems = (nearbyItems as any[]).map((item: any) => ({
-        id: item.item_id,
-        name: item.item_name,
-        base_price: item.base_price,
-        mrp: 0,
-        images: item.images,
-        partner_id: item.partner_id,
-        partner_name: item.partner_name,
-        distance_km: item.distance_km,
-        has_personalization: item.has_personalization,
-        is_online: item.is_online,
-        rating: item.rating,
-      }));
+    if (catError) {
+      logError(catError, 'GetHomeDiscoveryCategories');
     }
+
+    const hour = new Date().getHours();
+    let timeContext = 'Fresh';
+
+    if (hour >= 5 && hour < 12) timeContext = 'Morning';
+    else if (hour >= 12 && hour < 17) timeContext = 'Daylight';
+    else if (hour >= 17 && hour < 21) timeContext = 'Evening';
+    else if (hour >= 21 || hour < 5) timeContext = 'Night';
+
+    let trendingItems: any[] | undefined;
+
+    if (lat && lng) {
+      const { data: nearbyItems, error: nearbyError } = await (supabase as any).rpc('get_nearby_items', {
+        user_lat: lat,
+        user_lng: lng,
+        radius_km: 10
+      });
+
+      if (nearbyError) {
+        logError(nearbyError, 'GetHomeDiscoveryNearby');
+      } else if (nearbyItems && (nearbyItems as any[]).length > 0) {
+        trendingItems = (nearbyItems as any[]).map((item: any) => ({
+          id: item.item_id,
+          name: item.item_name,
+          base_price: item.base_price,
+          mrp: 0,
+          images: item.images,
+          partner_id: item.partner_id,
+          partner_name: item.partner_name,
+          has_personalization: item.has_personalization,
+          is_online: item.is_online,
+          rating: item.rating,
+          distance_km: item.distance_km,
+        }));
+      }
+    }
+
+    if (!trendingItems) {
+      trendingItems = [];
+    }
+
+    return {
+      categories: categories || [],
+      trendingItems: trendingItems || [],
+      timeContext
+    };
+  } catch (error) {
+    logError(error, 'GetHomeDiscovery');
+    return {
+      categories: [],
+      trendingItems: [],
+      error: error instanceof Error ? error.message : 'Failed to fetch discovery data',
+      timeContext: 'Fresh'
+    };
   }
-
-  if (!trendingItems) {
-    // WYSHKIT 2026: Hyperlocal strictness.
-    // If no location context or no nearby items, do NOT show global items.
-    // This forces the UI to prompt for location / "No service in your area".
-    trendingItems = [];
-
-    /* 
-    // DEPRECATED: Global fallback violates Swiggy 2026 Hyperlocal promise
-    const { data: globalTrending } = await supabase...
-    */
-  }
-
-  return {
-    categories: categories || [],
-    trendingItems: trendingItems || [],
-    timeContext
-  };
 }
 
 export async function getCategories() {

@@ -19,13 +19,19 @@ export function DiscoveryItemsGrid({
     category,
     categoryName
 }: DiscoveryItemsGridProps) {
-    if (initialItems.length === 0) {
+    // WYSHKIT 2026: Filter out-of-stock items early for mobile-first efficiency
+    const availableItems = initialItems.filter((item: any) =>
+        item.stock_status !== 'out_of_stock' &&
+        (typeof item.stock_quantity !== 'number' || item.stock_quantity > 0)
+    );
+
+    if (availableItems.length === 0) {
         return (
             <div className="flex flex-col items-center justify-center py-16 px-4">
                 <div className="size-16 rounded-full bg-zinc-100 flex items-center justify-center mb-4">
                     <Sparkles className="size-6 text-zinc-300" />
                 </div>
-                <p className="text-sm text-zinc-500 text-center">No items found in this area</p>
+                <p className="text-sm text-zinc-500 text-center">No items currently in stock</p>
             </div>
         );
     }
@@ -37,13 +43,13 @@ export function DiscoveryItemsGrid({
                     {categoryName || 'Trending items'}
                 </h2>
                 <p className="text-xs text-zinc-500 mt-0.5">
-                    {categoryName ? `${initialItems.length} items found` : 'Popular in your area'}
+                    {categoryName ? `${availableItems.length} items found` : 'Popular in your area'}
                 </p>
             </div>
 
             {/* WYSHKIT 2026: Server-First - Initial items rendered on server with staggered entrance */}
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 md:gap-8">
-                {initialItems.map((item: any, index: number) => (
+                {availableItems.map((item: any, index: number) => (
                     <div
                         key={item.id}
                         className="slide-in-from-bottom-2"
@@ -52,7 +58,6 @@ export function DiscoveryItemsGrid({
                         <ItemCard
                             item={item}
                             priority={index < 4}
-                            navigateToStoreOnAdd
                         />
                     </div>
                 ))}
@@ -63,7 +68,6 @@ export function DiscoveryItemsGrid({
                     category={category}
                     categoryName={categoryName}
                     startOffset={initialItems.length}
-                    navigateToStoreOnAdd
                 />
             </div>
         </section>

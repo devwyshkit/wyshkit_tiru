@@ -26,6 +26,7 @@ export type PartnerOrder = Omit<DBOrder, 'delivery_address' | 'partner'> & {
   order_items: (OrderItem & {
     item?: Item | null;
     variant?: { stock_quantity: number } | null;
+    personalization_entry?: Tables<'order_personalization'> | null;
   })[];
   order_personalization?: Tables<'order_personalization'>[];
   latest_preview?: PreviewSubmission | null;
@@ -51,13 +52,13 @@ function logError(error: unknown, context: string) {
 // WYSHKIT 2026: Order State Machine - Valid Transitions (STRICT)
 // Enforces "Commitment Before Creativity" and "One-Trip" Principles
 const VALID_TRANSITIONS: Record<string, string[]> = {
-  PLACED: ['CONFIRMED', 'PREVIEW_READY', 'CANCELLED'],
+  PLACED: ['CONFIRMED', 'CANCELLED', 'IN_PRODUCTION'],
   CONFIRMED: ['DETAILS_RECEIVED', 'IN_PRODUCTION', 'PREVIEW_READY', 'CANCELLED'],
   DETAILS_RECEIVED: ['PREVIEW_READY', 'CANCELLED'],
   PREVIEW_READY: ['APPROVED', 'REVISION_REQUESTED', 'CANCELLED'],
   REVISION_REQUESTED: ['PREVIEW_READY', 'CANCELLED'],
   APPROVED: ['IN_PRODUCTION', 'CANCELLED'],
-  IN_PRODUCTION: ['PACKED', 'PREVIEW_READY', 'CANCELLED'],
+  IN_PRODUCTION: ['PACKED', 'CANCELLED'],
   PACKED: ['DISPATCHED', 'CANCELLED'],
   DISPATCHED: ['OUT_FOR_DELIVERY', 'DELIVERED'],
   OUT_FOR_DELIVERY: ['DELIVERED'],
@@ -71,10 +72,7 @@ function validateStatusTransition(
   to: string,
   hasPersonalization: boolean
 ): string | null {
-  // WYSHKIT 2026: Allow "Instant Momentum" - if partner uploads preview immediately, we accept it.
-  if (from === ORDER_STATUS.PLACED && to === ORDER_STATUS.PREVIEW_READY) {
-    return null;
-  }
+
 
   if (from === ORDER_STATUS.PLACED && to === ORDER_STATUS.DETAILS_RECEIVED) {
     // Note: We allow this if triggered by customer, but validateStatusTransition is usually for partner actions.
@@ -107,6 +105,8 @@ export async function getPartnerOrders(
       .select(`
         id, status, total, subtotal, order_number, created_at, has_personalization, personalization_input, payment_id, delivery_fee, platform_fee, gst, discount, partner_id,
         order_items (*),
+        order_personalization (*),
+        preview_submissions (*),
         delivery_address:addresses(*),
         partner:partners(*)
       `)
@@ -119,7 +119,13 @@ export async function getPartnerOrders(
     const { data, error } = await query.order('created_at', { ascending: false });
 
     if (error) throw error;
-    return { data: (data as unknown) as PartnerOrder[] };
+
+    const mappedData = (data as any[]).map(order => ({
+      ...order,
+      latest_preview: order.preview_submissions?.[0] || null
+    })) as PartnerOrder[];
+
+    return { data: mappedData };
   } catch (error) {
     logError(error, `getPartnerOrders:${partnerId}`);
     return { error: 'Failed to fetch orders' };
@@ -566,18 +572,34 @@ export async function getPersonalizationQueue(partnerId: string): Promise<{
       .in('order_id', orderIds)
       .order('submitted_at', { ascending: false });
 
-    const previewByOrder = new Map<string, PreviewSubmission>();
+    const previewByItem = new Map<string, PreviewSubmission>();
     ((previews as unknown as PreviewSubmission[]) || []).forEach(p => {
-      if (!previewByOrder.has(p.order_id)) {
-        previewByOrder.set(p.order_id, p);
+      if (p.order_item_id && !previewByItem.has(p.order_item_id)) {
+        previewByItem.set(p.order_item_id, p);
       }
     });
 
-    const enrichedOrders: PartnerOrder[] = (orders as unknown as PartnerOrder[]).map(order => ({
-      ...order,
-      order_items: order.order_items || [],
-      latest_preview: previewByOrder.get(order.id) || null,
-    }));
+    const enrichedOrders: PartnerOrder[] = (orders as unknown as PartnerOrder[]).map(order => {
+      const orderItems = (order.order_items || []).map(item => ({
+        ...item,
+        personalization_entry: order.order_personalization?.find(p => p.order_item_id === item.id) || null
+      }));
+
+      // For latest_preview at order level, we'll take the most recent one overall
+      const latestPreview = ((previews as unknown as PreviewSubmission[]) || [])
+        .filter(p => p.order_id === order.id)
+        .sort((a, b) => {
+          const aTime = a.submitted_at ? new Date(a.submitted_at).getTime() : 0;
+          const bTime = b.submitted_at ? new Date(b.submitted_at).getTime() : 0;
+          return bTime - aTime;
+        })[0] || null;
+
+      return {
+        ...order,
+        order_items: orderItems,
+        latest_preview: latestPreview,
+      };
+    });
 
     return { data: enrichedOrders };
   } catch (error) {
@@ -588,6 +610,7 @@ export async function getPersonalizationQueue(partnerId: string): Promise<{
 
 export async function uploadPreview(
   orderId: string,
+  orderItemId: string,
   previewUrl: string,
   partnerNotes?: string
 ): Promise<{ success: boolean; error?: string }> {
@@ -613,7 +636,6 @@ export async function uploadPreview(
     }
 
     // WYSHKIT 2026: If order is still PLACED, auto-transition to CONFIRMED first
-    // This honors "Commitment Before Creativity" while allowing "Instant Momentum"
     if (order.status === ORDER_STATUS.PLACED) {
       logger.info(`[uploadPreview] Auto-confirming order ${orderId} before preview upload.`);
       const confirmRes = await updateOrderStatus(orderId, 'CONFIRMED');
@@ -621,11 +643,12 @@ export async function uploadPreview(
     }
 
     // WYSHKIT 2026: Combined Update (Stateless/Atomic)
-    // We insert the preview AND update the order status in one logical flow
+    // We insert the preview linked to the specific item
     const { error: previewError } = await supabase
       .from('preview_submissions')
       .insert({
         order_id: orderId,
+        order_item_id: orderItemId, // Relational Mapping
         preview_url: previewUrl,
         partner_notes: partnerNotes || null,
         status: 'pending',
@@ -634,9 +657,13 @@ export async function uploadPreview(
 
     if (previewError) throw previewError;
 
-    // We pass additional metadata to updateOrderStatus if we wanted to be perfectly atomic,
-    // but updateOrderStatus handles the heavy lifting.
-    // For now, we update metadata here and then trigger status change.
+    // Update the specific order_item status
+    await supabase
+      .from('order_items')
+      .update({ status: 'preview_ready' })
+      .eq('id', orderItemId);
+
+    // Update order level metadata
     const { error: metadataError } = await supabase
       .from('orders')
       .update({

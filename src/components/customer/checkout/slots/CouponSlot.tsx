@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { applyCouponAction } from '@/lib/actions/checkout';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
+import { formatCurrency } from '@/lib/utils/pricing';
 
 interface CouponSlotProps {
     appliedCoupon: {
@@ -55,7 +56,7 @@ export function CouponSlot({ appliedCoupon }: CouponSlotProps) {
                                 {appliedCoupon.code} Applied
                             </p>
                             <p className="text-[10px] font-bold text-emerald-600/70 uppercase tracking-wider mt-0.5">
-                                Saved ₹{appliedCoupon.discount.toFixed(0)}
+                                Saved {formatCurrency(appliedCoupon.discount)}
                             </p>
                         </div>
                     </div>

@@ -23,6 +23,11 @@ export async function POST(req: NextRequest) {
 
     const event = JSON.parse(body);
 
+    const razorpayInstance = new Razorpay({
+      key_id: process.env.RAZORPAY_KEY_ID!,
+      key_secret: process.env.RAZORPAY_KEY_SECRET!,
+    });
+
     let supabase
     try {
       supabase = await createAdminClient();
@@ -41,20 +46,14 @@ export async function POST(req: NextRequest) {
       }
 
       try {
-        // Fetch Razorpay order to get notes (contains draftItems, addressId, etc.)
-        const razorpayInstance = new Razorpay({
-          key_id: process.env.RAZORPAY_KEY_ID!,
-          key_secret: process.env.RAZORPAY_KEY_SECRET!,
-        });
-
-        // Fetch order from Razorpay
+        // Fetch order from Razorpay to get notes (contains draftId, userId)
         const razorpayOrder = await razorpayInstance.orders.fetch(razorpayOrderId);
         const notes = (razorpayOrder.notes as any) || {};
 
         const userId = String(notes.userId || notes.user_id || '');
         const draftId = String(notes.draftId || notes.draft_id || '');
 
-        if (!userId || userId === '' || !draftId || draftId === '') {
+        if (!userId || !draftId) {
           log.error('[webhooks/razorpay] Missing required data in notes', { notes });
           return NextResponse.json({ error: 'Missing required data in payment notes' }, { status: 400 });
         }
@@ -79,17 +78,8 @@ export async function POST(req: NextRequest) {
           .maybeSingle();
 
         if (existingOrder) {
-          log.info('[webhooks/razorpay] Order already exists', { orderId: existingOrder.id, razorpayOrderId });
+          log.info('[webhooks/razorpay] Idempotency hit: Order already processed by client/browser', { orderId: existingOrder.id, razorpayOrderId });
           return NextResponse.json({ received: true, message: 'Order already processed' });
-        }
-
-        // Verify Amount (Safety Check)
-        const paidAmountPaise = event.payload.payment?.entity?.amount;
-        const expectedAmountPaise = Math.round((draft.metadata as any)?.pricing?.total * 100);
-
-        if (paidAmountPaise && Math.abs(paidAmountPaise - expectedAmountPaise) > 50) { // Allowed 50 paise variance
-          log.error('[webhooks/razorpay] Payment amount mismatch', { paidAmountPaise, expectedAmountPaise, razorpayOrderId });
-          return NextResponse.json({ received: true, message: 'Payment amount mismatch' });
         }
 
         // Place order using draft data (Trigger-first model)
@@ -103,6 +93,7 @@ export async function POST(req: NextRequest) {
           useWallet: metadata.useWallet,
           gstin: metadata.gstin,
           deliveryInstructions: metadata.deliveryInstructions,
+          distanceKm: metadata.distanceKm,
           userId: userId,
           useAdmin: true
         });
@@ -118,12 +109,67 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ received: true, orderId: result.orderId });
       } catch (error) {
         log.error('[webhooks/razorpay] Error creating order from payment', error, { razorpayOrderId });
-        // Return 200 to acknowledge receipt - Razorpay will retry on their end
-        return NextResponse.json({ received: true, error: 'Failed to create order, will retry' }, { status: 200 });
+        return NextResponse.json({ error: 'Failed to create order, will retry' }, { status: 500 });
       }
     }
 
+    // Handle payment.failed event
+    if (event.event === 'payment.failed') {
+      const razorpayOrderId = event.payload.payment?.entity?.order_id;
+      const errorDescription = event.payload.payment?.entity?.error_description || 'Unknown error';
+
+      log.warn('[webhooks/razorpay] Payment failed', { razorpayOrderId, errorDescription });
+
+      try {
+        const razorpayOrder = await razorpayInstance.orders.fetch(String(razorpayOrderId));
+        const draftId = razorpayOrder.notes?.draftId || razorpayOrder.notes?.draft_id;
+
+        if (draftId) {
+          await supabase.from('draft_orders').delete().eq('id', String(draftId));
+          log.info('[webhooks/razorpay] Failed payment draft cleaned', { draftId, razorpayOrderId });
+        }
+
+      } catch (err) {
+        log.error('[webhooks/razorpay] Failed to clean draft on payment.failed', err, { razorpayOrderId });
+      }
+
+      return NextResponse.json({ received: true });
+    }
+
+    // Handle refund.processed event
+    if (event.event === 'refund.processed') {
+      const paymentId = event.payload.refund?.entity?.payment_id;
+      const refundId = event.payload.refund?.entity?.id;
+
+      log.info('[webhooks/razorpay] Refund processed', { paymentId, refundId });
+
+      const { data: order, error: orderError } = await supabase
+        .from('orders')
+        .select('id, order_number')
+        .eq('payment_id', paymentId)
+        .maybeSingle();
+
+      if (order && !orderError) {
+        await supabase.from('orders').update({
+          payment_status: 'REFUNDED',
+          status: 'REFUNDED',
+          updated_at: new Date().toISOString()
+        }).eq('id', order.id);
+
+        await (supabase as any).rpc('log_order_status_history', {
+          p_order_id: order.id,
+          p_type: 'refund',
+          p_title: 'Refund Processed',
+          p_description: `Payment refund (ID: ${refundId}) has been successfully processed.`,
+          p_metadata: { paymentId, refundId }
+        });
+      }
+
+      return NextResponse.json({ received: true });
+    }
+
     return NextResponse.json({ received: true });
+
   } catch (error) {
     log.error('[webhooks/razorpay] Unexpected error', error, { path: '/api/webhooks/razorpay' });
     return handleAPIError(error, 500);

@@ -6,7 +6,7 @@ import { Plus, Search, Package } from 'lucide-react';
 import { CatalogList } from './CatalogList';
 import { ItemForm } from './ItemForm';
 import { toggleItemActiveStatus, toggleItemStockStatus } from '@/lib/actions/partner-actions';
-import { deleteItem, getItemWithDetails } from '@/lib/actions/item-actions';
+import { deleteItem, getItemWithFullSpec } from '@/lib/actions/item-actions';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -71,7 +71,8 @@ export function CatalogListClient({ initialItems, partnerId }: CatalogListClient
   };
 
   const handleEditItem = async (item: Item) => {
-    const result = await getItemWithDetails(item.id);
+    const result = await getItemWithFullSpec(item.id);
+
     if (result.data) {
       // Swiggy Pattern: Ensure full specification is passed to the editing sheet
       setEditingItem(result.data as ItemWithDetails);

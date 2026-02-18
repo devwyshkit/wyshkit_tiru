@@ -61,13 +61,12 @@ export function useActiveOrders() {
             return;
         }
 
-        fetchActiveOrders(user.id);
+        if (channel) {
+            fetchActiveOrders(user.id);
 
-        // WYSHKIT 2026: Use a dedicated channel for this hook's specific filter.
-        // This avoids listener accumulation on the shared Pulse channel.
-        const userActiveOrdersChannel = supabase
-            .channel(`active-orders-${user.id}`)
-            .on(
+            // WYSHKIT 2026: Attach to the shared Pulse channel instead of creating a new one.
+            // This follows the "One User = One Connection" principle.
+            channel.on(
                 'postgres_changes',
                 {
                     event: '*',
@@ -78,13 +77,13 @@ export function useActiveOrders() {
                 () => {
                     fetchActiveOrders(user.id);
                 }
-            )
-            .subscribe();
+            );
+        }
 
         return () => {
-            supabase.removeChannel(userActiveOrdersChannel);
+            // Channel cleanup is managed by RealtimeProvider.
         };
-    }, [user?.id, authLoading]);
+    }, [user?.id, authLoading, channel]);
 
     return { activeOrders, loading };
 }

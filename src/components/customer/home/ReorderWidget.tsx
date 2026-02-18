@@ -9,6 +9,7 @@ import { createClient } from '@/lib/supabase/client';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { logger } from '@/lib/logging/logger';
+import { hasAnyPersonalization } from '@/lib/utils/personalization';
 
 interface RecentOrder {
   id: string;
@@ -143,7 +144,7 @@ export function ReorderWidget() {
           const firstItem = order.items?.[0];
           const itemCount = order.items?.length || 0;
           const isReordering = reorderingId === order.id;
-          const hasPersonalization = order.items?.some(i => i.personalization?.enabled);
+          const hasPersonalization = hasAnyPersonalization(order.items || []);
 
           return (
             <button

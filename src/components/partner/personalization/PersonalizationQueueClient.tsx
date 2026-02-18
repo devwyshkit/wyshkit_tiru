@@ -28,8 +28,7 @@ type PersonalizationInput = {
 
 export function PersonalizationQueueClient({ initialOrders }: PersonalizationQueueClientProps) {
   const [orders, setOrders] = useState(initialOrders);
-  const [uploadingOrderId, setUploadingOrderId] = useState<string | null>(null);
-  const [uploadingOrderNumber, setUploadingOrderNumber] = useState<string>('');
+  const [uploadState, setUploadState] = useState<{ orderId: string; orderItemId: string; orderNumber: string } | null>(null);
 
   const waitingForInput = orders.filter(o => o.status === ORDER_STATUS.PLACED);
   const needsPreview = orders.filter(o =>
@@ -38,15 +37,20 @@ export function PersonalizationQueueClient({ initialOrders }: PersonalizationQue
   const revisionRequested = orders.filter(o => o.status === ORDER_STATUS.REVISION_REQUESTED);
   const awaitingApproval = orders.filter(o => o.status === ORDER_STATUS.PREVIEW_READY);
 
-  const handleUploadClick = (orderId: string, orderNumber: string) => {
-    setUploadingOrderId(orderId);
-    setUploadingOrderNumber(orderNumber);
+  const handleUploadClick = (orderId: string, orderItemId: string, orderNumber: string) => {
+    setUploadState({ orderId, orderItemId, orderNumber });
   };
 
   const handleUploadSuccess = () => {
+    if (!uploadState) return;
     setOrders(prev => prev.map(o =>
-      o.id === uploadingOrderId
-        ? { ...o, status: ORDER_STATUS.PREVIEW_READY }
+      o.id === uploadState.orderId
+        ? {
+          ...o,
+          order_items: o.order_items.map(item =>
+            item.id === uploadState.orderItemId ? { ...item, status: 'preview_ready' } : item
+          )
+        }
         : o
     ));
   };
@@ -131,38 +135,50 @@ export function PersonalizationQueueClient({ initialOrders }: PersonalizationQue
               </span>
             </div>
 
-            {order.order_items?.map((item, idx) => (
-              <p key={idx} className="text-sm text-zinc-700 mt-2">
-                {item.quantity}× {item.item_name}
-              </p>
-            ))}
-
-            {renderPersonalizationDetails(order.personalization_input)}
-
-            {order.latest_preview?.preview_url && (
-              <div className="mt-2">
-                <p className="text-xs text-zinc-500 mb-1">Current preview:</p>
-                <div className="relative w-24 h-24 rounded-lg overflow-hidden bg-zinc-100">
-                  <Image
-                    src={order.latest_preview.preview_url}
-                    alt="Preview"
-                    fill
-                    className="object-cover"
-                  />
+            {order.order_items?.map((item) => (
+              <div key={item.id} className="mt-3 p-3 bg-zinc-50 rounded-xl border border-zinc-100">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-sm font-medium text-zinc-900">
+                    {item.quantity}× {item.item_name}
+                  </p>
+                  {showUpload && item.status !== 'preview_ready' && (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="h-8 text-[10px] font-bold uppercase tracking-wider text-blue-600 hover:text-blue-700 hover:bg-blue-50"
+                      onClick={() => handleUploadClick(order.id, item.id, order.order_number || '')}
+                    >
+                      <Upload className="size-3.5 mr-1" />
+                      Upload Preview
+                    </Button>
+                  )}
+                  {item.status === 'preview_ready' && (
+                    <Badge variant="outline" className="bg-emerald-50 text-emerald-700 border-emerald-100 text-[10px]">
+                      Preview Sent
+                    </Badge>
+                  )}
                 </div>
-              </div>
-            )}
-          </div>
 
-          {showUpload && (
-            <Button
-              size="sm"
-              onClick={() => handleUploadClick(order.id, order.order_number || '')}
-            >
-              <Upload className="size-4 mr-1.5" />
-              Upload
-            </Button>
-          )}
+                {item.personalization_entry && renderPersonalizationDetails(item.personalization_entry)}
+                {!item.personalization_entry && item.personalization_details && renderPersonalizationDetails(item.personalization_details)}
+
+                {/* Show Item-Specific Preview if available */}
+                {item.status === 'preview_ready' && (
+                  <div className="mt-2 flex items-center gap-2">
+                    <div className="size-10 relative rounded-md overflow-hidden bg-white border border-zinc-200">
+                      <Image
+                        src={order.latest_preview?.preview_url || ''}
+                        alt="Preview"
+                        fill
+                        className="object-cover"
+                      />
+                    </div>
+                    <span className="text-[10px] text-zinc-500 italic">Waiting for approval</span>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
         </div>
       </CardContent>
     </Card>
@@ -343,10 +359,11 @@ export function PersonalizationQueueClient({ initialOrders }: PersonalizationQue
       )}
 
       <PreviewUploader
-        orderId={uploadingOrderId || ''}
-        orderNumber={uploadingOrderNumber}
-        isOpen={!!uploadingOrderId}
-        onClose={() => setUploadingOrderId(null)}
+        orderId={uploadState?.orderId || ''}
+        orderItemId={uploadState?.orderItemId || ''}
+        orderNumber={uploadState?.orderNumber || ''}
+        isOpen={!!uploadState}
+        onClose={() => setUploadState(null)}
         onSuccess={handleUploadSuccess}
       />
     </div>

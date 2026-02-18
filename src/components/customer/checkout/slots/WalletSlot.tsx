@@ -7,6 +7,7 @@ import { cn } from '@/lib/utils';
 import { toggleWalletAction } from '@/lib/actions/checkout';
 import type { WalletInfo } from '@/lib/actions/wallet';
 import type { PricingBreakdown } from '../types';
+import { formatCurrency } from '@/lib/utils/pricing';
 
 interface WalletSlotProps {
     walletInfo: WalletInfo | null;
@@ -54,7 +55,7 @@ export function WalletSlot({ walletInfo, useWalletBalance, pricing }: WalletSlot
                             "text-[10px] font-bold uppercase tracking-wider mt-0.5",
                             useWalletBalance ? "text-white/60" : "text-zinc-400"
                         )}>
-                            Balance: ₹{walletInfo.balance.toFixed(0)}
+                            Balance: {formatCurrency(walletInfo.balance)}
                         </p>
                     </div>
                 </div>
@@ -62,7 +63,7 @@ export function WalletSlot({ walletInfo, useWalletBalance, pricing }: WalletSlot
                 <div className="flex items-center gap-3">
                     {useWalletBalance && (
                         <span className="text-[11px] font-black text-white/90">
-                            -₹{pricing.walletDiscount.toFixed(0)}
+                            -{formatCurrency(pricing.walletDiscount)}
                         </span>
                     )}
                     {isPending ? (

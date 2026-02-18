@@ -4,6 +4,7 @@ import { LogOut } from 'lucide-react';
 import { useRouter, usePathname } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { cn } from '@/lib/utils';
+import { useAuth } from '@/hooks/useAuth';
 import { useState } from 'react';
 import { logger } from '@/lib/logging/logger';
 
@@ -21,14 +22,16 @@ export function SignOutButton({
   const router = useRouter();
   const pathname = usePathname();
   const [isLoading, setIsLoading] = useState(false);
-  const supabase = createClient();
+  const { signOut } = useAuth();
 
   const handleSignOut = async () => {
     try {
       setIsLoading(true);
-      await supabase.auth.signOut();
 
-      // Clear partner cookie manually for safety
+      // WYSHKIT 2026: Use centralized auth hook for consistent state cleanup
+      await signOut();
+
+      // Clear partner cookie manually (specific to this button context)
       document.cookie = 'wyshkit_partner_id=; path=/; expires=Thu, 01 Jan 1970 00:00:01 GMT;';
 
       if (pathname.startsWith('/partner')) {

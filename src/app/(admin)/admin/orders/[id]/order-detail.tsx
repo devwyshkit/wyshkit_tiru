@@ -60,7 +60,7 @@ export function OrderDetail({ order }: OrderDetailProps) {
   }
 
   const address = order.delivery_address as { name?: string; phone?: string; address_line1?: string; city?: string; pincode?: string } | null
-  const timeline = [...(order.order_status_history || [])].sort((a, b) => 
+  const timeline = [...(order.order_status_history || [])].sort((a, b) =>
     new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime()
   )
 
@@ -130,9 +130,8 @@ export function OrderDetail({ order }: OrderDetailProps) {
                   <div className="absolute left-[9px] top-1 bottom-1 w-px bg-zinc-200" />
                   {timeline.map((entry, i) => (
                     <div key={entry.id} className="relative">
-                      <div className={`absolute -left-6 top-1 size-[18px] rounded-full border-2 ${
-                        i === timeline.length - 1 ? 'bg-emerald-500 border-emerald-500' : 'bg-white border-zinc-300'
-                      }`} />
+                      <div className={`absolute -left-6 top-1 size-[18px] rounded-full border-2 ${i === timeline.length - 1 ? 'bg-emerald-500 border-emerald-500' : 'bg-white border-zinc-300'
+                        }`} />
                       <div>
                         <p className="font-medium capitalize">{(entry.type ?? entry.title ?? '').toLowerCase().replace(/_/g, ' ')}</p>
                         <p className="text-xs text-zinc-500">{formatDate(entry.created_at)}</p>
@@ -150,22 +149,40 @@ export function OrderDetail({ order }: OrderDetailProps) {
               <CardHeader className="pb-3">
                 <CardTitle className="text-sm font-medium">Personalization</CardTitle>
               </CardHeader>
-              <CardContent>
-                {order.order_personalization.map((p, idx) => (
-                  <div key={`${p.order_id}-${p.item_index}-${idx}`} className="space-y-2">
-                    <div className="flex items-center gap-2">
-                      <Badge variant={p.approved_at ? 'default' : 'secondary'}>
-                        {p.approved_at ? 'Approved' : p.status || p.preview_version != null ? 'Preview ready' : 'Pending'}
-                      </Badge>
-                      <span className="text-sm text-zinc-500">
-                        {p.revision_count || 0} revision(s)
-                      </span>
+              <CardContent className="space-y-6">
+                {order.order_personalization.map((p, idx) => {
+                  const item = order.order_items.find(oi => oi.id === p.order_item_id);
+                  return (
+                    <div key={`${p.order_id}-${p.item_index}-${idx}`} className="space-y-2 pb-4 border-b last:border-0 last:pb-0">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <p className="text-sm font-medium text-zinc-900">
+                            {item?.items?.name || `Item ${p.item_index + 1}`}
+                          </p>
+                          <Badge variant={p.approved_at ? 'default' : 'secondary'}>
+                            {p.approved_at ? 'Approved' : p.status || p.preview_version != null ? 'Preview ready' : 'Pending'}
+                          </Badge>
+                        </div>
+                        <span className="text-xs text-zinc-500">
+                          {p.revision_count || 0} revision(s)
+                        </span>
+                      </div>
+
+                      {item?.personalization_details && (
+                        <div className="text-xs text-zinc-600 bg-zinc-50 p-2 rounded">
+                          <pre className="whitespace-pre-wrap">{JSON.stringify(item.personalization_details, null, 2)}</pre>
+                        </div>
+                      )}
+
+                      {p.preview_url && (
+                        <div className="mt-2">
+                          <p className="text-[10px] text-zinc-500 mb-1 font-bold">LATEST PREVIEW</p>
+                          <img src={p.preview_url} alt="Preview" className="max-w-[200px] rounded border shadow-sm" />
+                        </div>
+                      )}
                     </div>
-                    {p.preview_url && (
-                      <img src={p.preview_url} alt="Preview" className="max-w-[200px] rounded border" />
-                    )}
-                  </div>
-                ))}
+                  );
+                })}
               </CardContent>
             </Card>
           )}

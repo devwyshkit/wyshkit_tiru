@@ -6,6 +6,7 @@ import { useAuth } from "@/hooks/useAuth";
 import * as draftOrderActions from "@/lib/actions/draft-order";
 import { createClient } from "@/lib/supabase/client";
 import { logger } from "@/lib/logging/logger";
+import { calculateItemPrice } from "@/lib/utils/pricing";
 
 interface CartContextType {
     draftOrder: Cart;
@@ -73,27 +74,38 @@ export function CartProvider({
 
             let newItems;
             if (existingItemIndex >= 0) {
-                newItems = state.items.map((item, idx) =>
-                    idx === existingItemIndex
-                        ? { ...item, quantity: item.quantity + newItem.quantity, totalPrice: (item.unitPrice || 0) * (item.quantity + newItem.quantity) }
-                        : item
-                );
+                newItems = state.items.map((item, idx) => {
+                    if (idx === existingItemIndex) {
+                        const updatedQuantity = item.quantity + newItem.quantity;
+                        const updatedItem = { ...item, quantity: updatedQuantity };
+                        return {
+                            ...updatedItem,
+                            totalPrice: calculateItemPrice(updatedItem as any)
+                        };
+                    }
+                    return item;
+                });
             } else {
                 const tempId = `optimistic-${newItem.itemId}-${newItem.variantId || 'base'}-${Date.now()}`;
+                const newItemObj = {
+                    id: tempId,
+                    itemId: newItem.itemId,
+                    itemName: newItem.itemName || 'Loading...',
+                    itemImage: newItem.itemImage || '/images/logo.png',
+                    quantity: newItem.quantity,
+                    unitPrice: newItem.unitPrice || 0,
+                    totalPrice: 0, // Will be calculated below
+                    selectedVariantId: newItem.variantId,
+                    personalization: newItem.personalization,
+                    selectedAddons: newItem.selectedAddons,
+                    partnerName: newItem.partnerName,
+                };
+
                 newItems = [
                     ...state.items,
                     {
-                        id: tempId,
-                        itemId: newItem.itemId,
-                        itemName: newItem.itemName || 'Loading...',
-                        itemImage: newItem.itemImage || '/images/logo.png',
-                        quantity: newItem.quantity,
-                        unitPrice: newItem.unitPrice || 0,
-                        totalPrice: (newItem.unitPrice || 0) * newItem.quantity,
-                        selectedVariantId: newItem.variantId,
-                        personalization: newItem.personalization,
-                        selectedAddons: newItem.selectedAddons, // Add this
-                        partnerName: newItem.partnerName,
+                        ...newItemObj,
+                        totalPrice: calculateItemPrice(newItemObj as any)
                     },
                 ];
             }

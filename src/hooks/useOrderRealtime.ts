@@ -61,8 +61,9 @@ interface TimelineEvent {
 
 export interface PreviewSubmission {
   id: string;
+  order_item_id?: string; // Relational Mapping
   preview_url: string;
-  status: 'pending' | 'approved' | 'changes_requested';
+  status: 'pending' | 'approved' | 'change_requested';
   partner_notes: string | null;
 }
 
@@ -106,7 +107,7 @@ export function useOrderRealtime({
       const [orderRes, timelineRes, previewsRes, itemsRes] = await Promise.all([
         supabase.from('orders').select('id, status, order_number, payment_status, updated_at, has_personalization, personalization_input, personalization_status, change_request_count, max_change_requests, awb_number, courier_partner, delivery_address, items, discount, cashback_amount, total, subtotal, design_deadline_at, delivery_fee, tax_amount, platform_fee, personalization_charges, partner_name:partners(name)').eq('id', orderId).maybeSingle(),
         supabase.from('order_status_history').select('id, order_id, type, title, description, metadata, created_at').eq('order_id', orderId).order('created_at', { ascending: false }),
-        supabase.from('preview_submissions').select('id, preview_url, status, partner_notes, submitted_at').eq('order_id', orderId).order('submitted_at', { ascending: false }),
+        supabase.from('preview_submissions').select('id, order_item_id, preview_url, status, partner_notes, submitted_at').eq('order_id', orderId).order('submitted_at', { ascending: false }),
         supabase.from('order_items').select('id, item_id, item_name, quantity, unit_price, total_price, item_image_url, is_personalized, personalization_config, personalization_details, status, selected_addons').eq('order_id', orderId)
       ]);
 
@@ -155,14 +156,26 @@ export function useOrderRealtime({
     const supabase = createClient();
     const orderChannel = supabase.channel(`order-pulse-${orderId}`);
 
-    // 1. Order Status
+    // 1. Order Status (INSERT & UPDATE)
+    // INSERT catches the order if it was created AFTER the user landed on the page.
     orderChannel.on(
       'postgres_changes',
-      { event: 'UPDATE', schema: 'public', table: 'orders', filter: `id=eq.${orderId}` },
+      { event: '*', schema: 'public', table: 'orders', filter: `id=eq.${orderId}` },
       (payload) => {
         const newData = payload.new as OrderUpdate;
         setOrder((prev) => {
-          if (prev && newData.status !== prev.status) onStatusChange?.(newData.status, prev.status);
+          if (prev && newData.status !== prev.status) {
+            import('@/lib/utils/haptic').then(({ triggerHaptic, HapticPattern }) => {
+              triggerHaptic(HapticPattern.SUCCESS);
+            });
+            onStatusChange?.(newData.status, prev.status);
+            // Swiggy 2026: Force refetch on status transition to ensure relational data (previews, items) is fresh
+            fetchInitialData();
+          }
+          // If it was an INSERT, we also want to fetch the other related data (items, previews)
+          if (payload.eventType === 'INSERT') {
+            fetchInitialData();
+          }
           return { ...prev, ...newData };
         });
       }
@@ -205,7 +218,21 @@ export function useOrderRealtime({
     orderChannel.on(
       'postgres_changes',
       { event: '*', schema: 'public', table: 'order_items', filter: `order_id=eq.${orderId}` },
-      () => {
+      (payload) => {
+        // WYSHKIT 2026: Optimistic Update for Zero Latency
+        if (payload.eventType === 'UPDATE' && payload.new) {
+          const updatedItem = payload.new as any; // Cast to ensure compatibility
+          setOrder((prev) => {
+            if (!prev || !prev.order_items) return prev;
+            return {
+              ...prev,
+              order_items: prev.order_items.map((item) =>
+                item.id === updatedItem.id ? { ...item, ...updatedItem } : item
+              ),
+            };
+          });
+        }
+        // Resilience: Always refetch to ensure we catch side-effects (aggregates/triggers)
         fetchInitialData();
       }
     );

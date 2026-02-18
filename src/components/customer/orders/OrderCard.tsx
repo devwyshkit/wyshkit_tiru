@@ -6,6 +6,7 @@ import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { ORDER_STATUS } from "@/lib/types/order-status";
 import { getOrderStatusDisplay, getOrderStatusColor } from "@/lib/utils/order-status";
+import { formatCurrency } from "@/lib/utils/pricing";
 
 interface OrderCardProps {
   order: OrderListItem;
@@ -50,7 +51,7 @@ export function OrderCard({ order }: OrderCardProps) {
                 Order #{orderNumber}
               </p>
             </div>
-            <p className="text-sm font-black text-zinc-950 tabular-nums">₹{total}</p>
+            <p className="text-sm font-black text-zinc-950 tabular-nums">{formatCurrency(total)}</p>
           </div>
 
           <div className="mt-3 flex flex-wrap gap-2">

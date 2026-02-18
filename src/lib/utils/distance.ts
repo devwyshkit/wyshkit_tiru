@@ -30,6 +30,21 @@ export function calculateHaversineDistance(
   return d;
 }
 
+
+/**
+ * Estimates travel time in minutes based on distance.
+ * SWIGGY 2026: ~5 mins per 1km in city traffic + 10 mins buffer.
+ */
+export function calculateTravelTime(distanceKm: number | null | undefined): { min: number; max: number } | null {
+  if (distanceKm == null) return null;
+
+  const baseMins = Math.ceil(distanceKm * 5);
+  return {
+    min: baseMins + 5,
+    max: baseMins + 10
+  };
+}
+
 function toRad(value: number): number {
   return (value * Math.PI) / 180;
 }

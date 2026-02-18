@@ -1,7 +1,7 @@
 'use client';
 
-import React, { useEffect, useState, useMemo, useCallback } from 'react';
-import { Plus, Minus, Star, Check, Loader2, ChevronDown, Sparkles, Info, Globe, PlayCircle, Clock, Factory, ShieldCheck, Heart } from 'lucide-react';
+import React, { useEffect, useState, useMemo, useCallback, useRef } from 'react';
+import { Plus, Minus, Star, Check, Loader2, PlayCircle, Clock, Factory, ShieldCheck, Globe, Info, Heart, Package, ChevronRight, AlertTriangle, Sparkles, Scale, IndianRupee } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
@@ -11,7 +11,7 @@ import { getUpsellItems } from '@/lib/actions/item-actions';
 import { useCart } from '@/components/customer/CartProvider';
 import { UpsellGrid } from '@/components/features/UpsellGrid';
 import { triggerHaptic, HapticPattern } from '@/lib/utils/haptic';
-import { Package, ChevronRight, AlertTriangle } from 'lucide-react';
+import { formatCurrency } from '@/lib/utils/pricing';
 import {
     AlertDialog,
     AlertDialogAction,
@@ -40,26 +40,19 @@ export function ItemDetailView({ item, onBack, partnerId }: ItemDetailViewProps)
     const { addToDraftOrder, clearDraftOrder, isPending, draftOrder } = useCart();
     const [continuing, setContinuing] = useState(false);
     const [quantity, setQuantity] = useState(1);
-    const [selectedVariantId, setSelectedVariantId] = useState<string | null>(
-        item.variants?.length ? String(item.variants[0].id) : null
-    );
+    const [selectedVariantId, setSelectedVariantId] = useState<string | null>(null);
     const [selectedAddonIds, setSelectedAddonIds] = useState<Set<string>>(new Set());
     const [activeImageIndex, setActiveImageIndex] = useState(0);
-    // WYSHKIT 2026: Always show description for better product context
-    const [showDescription, setShowDescription] = useState(true);
+    const imageContainerRef = useRef<HTMLDivElement>(null);
     const [upsellItems, setUpsellItems] = useState<any[]>([]);
     const [showReplaceCartDialog, setShowReplaceCartDialog] = useState(false);
-
-    useEffect(() => {
-        // WYSHKIT 2026: Analytics or side-effects can go here
-    }, [item]);
 
     const handleBack = useCallback(() => {
         if (onBack) onBack();
         else router.back();
     }, [onBack, router]);
 
-    // When item has variants and none selected yet, default to first (e.g. after sheet data loads)
+    // Default to first variant if needed
     useEffect(() => {
         const variants = Array.isArray(item?.variants) ? item.variants : [];
         if (variants.length > 0 && selectedVariantId == null) {
@@ -75,9 +68,9 @@ export function ItemDetailView({ item, onBack, partnerId }: ItemDetailViewProps)
         loadUpsell();
     }, [item]);
 
-    // WYSHKIT 2026: Normalize so sheet works even if API returns single object or null
     const variantsArray = Array.isArray(item?.variants) ? item.variants : [];
     const addonsArray = Array.isArray(item?.item_addons) ? item.item_addons : [];
+    const personalizationArray = Array.isArray(item?.personalization_options) ? item.personalization_options : [];
 
     const selectedVariant = useMemo(() => {
         return variantsArray.find((v: any) => String(v.id) === selectedVariantId) || null;
@@ -87,66 +80,68 @@ export function ItemDetailView({ item, onBack, partnerId }: ItemDetailViewProps)
         return addonsArray.filter((addon: any) => selectedAddonIds.has(addon.id));
     }, [addonsArray, selectedAddonIds]);
 
+    const selectedPersonalizations = useMemo(() => {
+        return personalizationArray.filter((p: any) => selectedAddonIds.has(p.id));
+    }, [personalizationArray, selectedAddonIds]);
+
     const canAdd = variantsArray.length === 0 || selectedVariantId != null;
 
     const unitPrice = useMemo(() => {
         const basePrice = Number(item.base_price) || 0;
         const variantPrice = Number(selectedVariant?.price) || 0;
         const addonsSum = selectedAddons.reduce((sum: number, addon: any) => sum + (Number(addon.price) || 0), 0);
-
-        // WYSHKIT 2026: Pricing Integrity - unitPrice is (base + variant + addons)
-        return basePrice + variantPrice + addonsSum;
-    }, [item.base_price, selectedVariant, selectedAddons]);
+        const personalizationSum = selectedPersonalizations.reduce((sum: number, p: any) => sum + (Number(p.price) || 0), 0);
+        return basePrice + variantPrice + addonsSum + personalizationSum;
+    }, [item.base_price, selectedVariant, selectedAddons, selectedPersonalizations]);
 
     const totalPrice = unitPrice * quantity;
 
     const handleAddToCart = async () => {
         if (continuing) return;
 
-        // WYSHKIT 2026: Synchronous Partner Check (Prevent optimistic close on mismatch)
         const currentPartnerId = draftOrder?.partnerId;
-        const itemPartnerId = item.partner_id || item.partners?.slug; // Using slug as fallback ID? No, should be ID.
-        // Wait, item.partners does not have ID in ItemWithFullSpec, it's Pick<Partner, ...>
-        // We need to use item.partner_id which is on ItemWithFullSpec (Item)
-
         if (currentPartnerId && item.partner_id && currentPartnerId !== item.partner_id && (draftOrder?.items?.length || 0) > 0) {
             setShowReplaceCartDialog(true);
             return;
         }
 
         setContinuing(true);
-
-        const itemImage = (item.images && Array.isArray(item.images) && item.images[0]) || FALLBACK_IMAGE;
-
         try {
-            const result = await addToDraftOrder(
-                item.id,
-                selectedVariantId,
-                { enabled: false },
-                selectedAddons.map((a: any) => ({
+            const allSelectedAddons = [
+                ...selectedAddons.map((a: any) => ({
                     id: a.id,
                     name: a.name,
                     price: a.price,
                     requires_preview: a.requires_preview
                 })),
+                ...selectedPersonalizations.map((p: any) => ({
+                    id: p.id,
+                    name: p.name,
+                    price: p.price,
+                    requires_preview: true // Personalization services always require preview in Wyshkit 2026
+                }))
+            ];
+
+            const result = await addToDraftOrder(
+                item.id,
+                selectedVariantId,
+                { enabled: false },
+                allSelectedAddons,
                 quantity,
                 {
                     itemName: item.name,
                     itemImage: item.images?.[0] || FALLBACK_IMAGE,
                     unitPrice: unitPrice,
-                    partnerId: item.partner_id!, // We know it exists if we are here
+                    partnerId: item.partner_id!,
                     partnerName: item.partners?.name || item.partners?.display_name || partnerId,
                 }
             );
 
             if ('success' in result && result.success) {
-                // WYSHKIT 2026: Tactile commitment
                 triggerHaptic(HapticPattern.SUCCESS);
                 handleBack();
             } else if ('code' in result && result.code === 'PARTNER_MISMATCH') {
                 setShowReplaceCartDialog(true);
-            } else if ('code' in result && result.code === 'VARIANT_REQUIRED') {
-                toast.error(result.error || 'Please select an option');
             } else if ('error' in result) {
                 toast.error(result.error || "Could not add to cart");
             }
@@ -162,21 +157,29 @@ export function ItemDetailView({ item, onBack, partnerId }: ItemDetailViewProps)
         setContinuing(true);
         try {
             await clearDraftOrder();
-            await clearDraftOrder();
-            // WYSHKIT 2026: Type-safe optimistic data with null checks
             const partnerName = item.partners?.name || item.partners?.display_name || null;
             const itemImage = (item.images && Array.isArray(item.images) && item.images[0]) || FALLBACK_IMAGE;
 
-            const result = await addToDraftOrder(
-                item.id,
-                selectedVariantId,
-                { enabled: false },
-                selectedAddons.map((a: any) => ({
+            const allSelectedAddons = [
+                ...selectedAddons.map((a: any) => ({
                     id: a.id,
                     name: a.name,
                     price: a.price,
                     requires_preview: a.requires_preview
                 })),
+                ...selectedPersonalizations.map((p: any) => ({
+                    id: p.id,
+                    name: p.name,
+                    price: p.price,
+                    requires_preview: true
+                }))
+            ];
+
+            const result = await addToDraftOrder(
+                item.id,
+                selectedVariantId,
+                { enabled: false },
+                allSelectedAddons,
                 quantity,
                 {
                     itemName: item.name || 'Item',
@@ -187,9 +190,6 @@ export function ItemDetailView({ item, onBack, partnerId }: ItemDetailViewProps)
                 }
             );
             if ('success' in result && result.success) {
-                // fly({ x: window.innerWidth / 2, y: window.innerHeight / 2 }, itemImage);
-                // toast.success(`Added ${item.name || 'item'} to cart`);
-                // WYSHKIT 2026: "Reveal Store" - Navigate to partner page and close sheet
                 if (item.partner_id) {
                     router.replace(`/partner/${item.partner_id}`, { scroll: false });
                 } else {
@@ -214,18 +214,18 @@ export function ItemDetailView({ item, onBack, partnerId }: ItemDetailViewProps)
     return (
         <>
             <AlertDialog open={showReplaceCartDialog} onOpenChange={setShowReplaceCartDialog}>
-                <AlertDialogContent>
+                <AlertDialogContent className="rounded-[32px] border-none shadow-2xl">
                     <AlertDialogHeader>
-                        <AlertDialogTitle>Different store</AlertDialogTitle>
-                        <AlertDialogDescription>
+                        <AlertDialogTitle className="text-xl font-black uppercase tracking-tighter">Different store</AlertDialogTitle>
+                        <AlertDialogDescription className="text-sm font-medium text-zinc-500">
                             Your cart has items from another store. To add from this store, start a new cart. Your current cart will be cleared.
                         </AlertDialogDescription>
                     </AlertDialogHeader>
-                    <AlertDialogFooter>
-                        <AlertDialogCancel>Keep current cart</AlertDialogCancel>
+                    <AlertDialogFooter className="gap-3">
+                        <AlertDialogCancel className="rounded-2xl border-2 border-zinc-100 font-bold uppercase tracking-widest text-[11px] h-12">Keep current cart</AlertDialogCancel>
                         <AlertDialogAction
                             onClick={handleReplaceCart}
-                            className="bg-[#D91B24] hover:bg-[#c01820]"
+                            className="bg-zinc-900 rounded-2xl font-bold uppercase tracking-widest text-[11px] h-12 hover:bg-zinc-800"
                         >
                             Start new cart & add
                         </AlertDialogAction>
@@ -233,69 +233,56 @@ export function ItemDetailView({ item, onBack, partnerId }: ItemDetailViewProps)
                 </AlertDialogContent>
             </AlertDialog>
 
-            <div className="flex flex-col flex-1 min-h-0 bg-white font-sans">
+            <div className="flex flex-col h-full bg-white font-sans overflow-hidden">
                 {/* Scrollable Content */}
-                <div className="flex-1 overflow-y-auto overscroll-contain min-h-0">
-                    {/* Image Section - Compact aspect for No-Scroll Rule */}
-                    <div className="relative bg-white w-full aspect-[16/9] md:aspect-square max-h-[35vh] md:max-h-none">
+                <div className="flex-1 overflow-y-auto overscroll-contain custom-scrollbar">
+                    {/* Image Section */}
+                    <div className="relative bg-white w-full aspect-[4/3] md:aspect-square">
                         <div
-                            className="w-full h-full flex overflow-x-auto snap-x snap-mandatory [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]"
+                            ref={imageContainerRef}
+                            className="w-full h-full flex overflow-x-auto snap-x snap-mandatory no-scrollbar"
                             onScroll={(e) => {
                                 const width = e.currentTarget.offsetWidth;
                                 const scrollLeft = e.currentTarget.scrollLeft;
                                 const index = Math.round(scrollLeft / width);
-                                if (index !== activeImageIndex) {
-                                    setActiveImageIndex(index);
-                                }
+                                if (index !== activeImageIndex) setActiveImageIndex(index);
                             }}
                         >
-                            {(images && images.length > 0 ? images : [FALLBACK_IMAGE]).map((img: string, idx: number) => (
-                                <div key={idx} className="w-full h-full min-w-full flex-shrink-0 snap-center snap-always relative bg-zinc-100">
+                            {images.map((img: string, idx: number) => (
+                                <div key={idx} className="w-full h-full min-w-full flex-shrink-0 snap-center snap-always relative bg-zinc-50">
                                     <ImageWithFallback
                                         src={img || FALLBACK_IMAGE}
-                                        alt={`${item.name} - Image ${idx + 1}`}
+                                        alt={`${item.name} - ${idx + 1}`}
                                         fill
                                         className="object-cover"
                                         priority={idx === 0}
-                                        sizes="100vw"
+                                        sizes="(max-width: 768px) 100vw, 540px"
                                     />
                                 </div>
                             ))}
                         </div>
 
-                        {/* WYSHKIT 2026: Video Showreel Trigger */}
                         {item.video_url && (
                             <button
-                                onClick={(e) => {
-                                    e.stopPropagation();
-                                    window.open(item.video_url!, '_blank');
-                                }}
-                                className="absolute top-4 right-4 z-10 size-10 rounded-full bg-white/90 backdrop-blur-sm shadow-xl flex items-center justify-center hover:bg-white active:scale-95 transition-all text-zinc-900"
+                                onClick={(e) => { e.stopPropagation(); window.open(item.video_url!, '_blank'); }}
+                                className="absolute bottom-6 right-6 z-10 size-12 rounded-full bg-white/90 backdrop-blur-md shadow-2xl flex items-center justify-center hover:bg-white active:scale-95 transition-all text-zinc-900 border border-white"
                             >
-                                <PlayCircle className="size-6" />
+                                <PlayCircle className="size-7" />
                             </button>
                         )}
 
-                        {/* Navigation Dots */}
                         {images.length > 1 && (
-                            <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex gap-1.5 z-10 p-1.5 rounded-full bg-black/20 backdrop-blur-sm">
+                            <div className="absolute bottom-6 left-6 flex gap-1.5 z-10 p-2 rounded-full bg-black/30 backdrop-blur-md border border-white/20">
                                 {images.map((_img: string, idx: number) => (
                                     <button
                                         key={idx}
-                                        onClick={(e) => {
-                                            e.preventDefault();
-                                            e.stopPropagation();
+                                        onClick={() => {
                                             setActiveImageIndex(idx);
-                                            // Note: Programmatic scroll would require a ref to the container
-                                            // For now, dots just indicate state on swipe, or we can add ref implementation if needed.
-                                            // Ideally, we should scroll the container.
-                                            // Let's add a ref to the container to support click-to-nav.
+                                            imageContainerRef.current?.scrollTo({ left: idx * imageContainerRef.current.clientWidth, behavior: 'smooth' });
                                         }}
                                         className={cn(
                                             "w-1.5 h-1.5 rounded-full transition-all",
-                                            idx === activeImageIndex
-                                                ? "bg-white w-3"
-                                                : "bg-white/50 hover:bg-white/80"
+                                            idx === activeImageIndex ? "bg-white w-4" : "bg-white/40"
                                         )}
                                     />
                                 ))}
@@ -303,131 +290,164 @@ export function ItemDetailView({ item, onBack, partnerId }: ItemDetailViewProps)
                         )}
                     </div>
 
-                    <div className="px-4 py-5 space-y-5">
-                        <div className="space-y-1">
-                            {item.brand && (
-                                <div className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-zinc-100 text-[10px] font-black uppercase text-zinc-500 tracking-wider">
-                                    {item.brand}
+                    <div className="px-6 py-6 space-y-8">
+                        {/* Header Info */}
+                        <div className="space-y-4">
+                            <div className="flex items-start justify-between gap-4">
+                                <div className="space-y-1">
+                                    {item.brand && (
+                                        <p className="text-[10px] font-black text-[#D91B24] uppercase tracking-[0.2em]">{item.brand}</p>
+                                    )}
+                                    <h1 className="text-2xl font-black text-zinc-950 leading-tight tracking-tighter uppercase">
+                                        {item.name}
+                                    </h1>
+                                    <p className="text-sm font-bold text-zinc-400 uppercase tracking-widest">{item.category}</p>
                                 </div>
-                            )}
-                            <h1 className="text-xl font-semibold text-zinc-900 leading-tight tracking-tight">
-                                {item.name}
-                            </h1>
-                            <div className="flex items-center gap-2 text-sm text-zinc-500">
-                                {item.partners?.name && (
-                                    <>
-                                        <span className="font-medium">{item.partners.name}</span>
-                                        <span className="text-zinc-300">•</span>
-                                    </>
-                                )}
+                                <div className="flex flex-col items-end gap-1.5">
+                                    <div className="flex items-baseline gap-1.5">
+                                        <span className="text-2xl font-black text-zinc-950 tracking-tighter">{formatCurrency(unitPrice)}</span>
+                                        {item.mrp && item.mrp > unitPrice && (
+                                            <span className="text-xs text-zinc-400 line-through font-bold">{formatCurrency(item.mrp)}</span>
+                                        )}
+                                    </div>
+                                    {item.mrp && item.mrp > unitPrice && (
+                                        <span className="text-[9px] font-black text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-md uppercase tracking-wider border border-emerald-100/50">
+                                            {Math.round(((item.mrp - unitPrice) / item.mrp) * 100)}% OFF
+                                        </span>
+                                    )}
+                                </div>
+                            </div>
+
+                            <div className="flex flex-wrap items-center gap-2 pt-2">
                                 {((item.rating || item.partners?.rating) ?? 0) > 0 && (
-                                    <div className="flex items-center gap-1 bg-emerald-600 px-1.5 py-0.5 rounded-md">
-                                        <span className="text-[11px] font-bold text-white">
+                                    <div className="flex items-center gap-1 bg-zinc-900 px-2 py-1 rounded-lg">
+                                        <span className="text-[11px] font-black text-white leading-none">
                                             {((item.rating || item.partners?.rating) ?? 0).toFixed(1)}
                                         </span>
                                         <Star className="size-2.5 fill-white text-white" />
                                     </div>
                                 )}
                                 {item.preview_time_minutes && (
-                                    <>
-                                        <span className="text-zinc-300">•</span>
-                                        <div className="flex items-center gap-1 text-emerald-600 font-bold">
-                                            <Loader2 className="size-3 animate-pulse" />
-                                            <span>{item.preview_time_minutes} min preview</span>
-                                        </div>
-                                    </>
+                                    <div className="flex items-center gap-1.5 px-3 py-1 bg-amber-50 rounded-lg text-amber-600 border border-amber-100/50">
+                                        <Sparkles className="size-3" />
+                                        <span className="text-[10px] font-black uppercase tracking-widest">{item.preview_time_minutes} min preview</span>
+                                    </div>
                                 )}
-                                {item.production_time_minutes && (
-                                    <>
-                                        <span className="text-zinc-300">•</span>
-                                        <div className="flex items-center gap-1 text-zinc-600 font-bold">
-                                            <Package className="size-3" />
-                                            <span>{Math.round(item.production_time_minutes / 60)} hr prep</span>
-                                        </div>
-                                    </>
-                                )}
-                                {item.is_perishable && item.shelf_life_hours && (
-                                    <>
-                                        <span className="text-zinc-300">•</span>
-                                        <div className="flex items-center gap-1 text-orange-600 font-bold">
-                                            <Clock className="size-3" />
-                                            <span>Best for {Math.round(item.shelf_life_hours / 24)}d</span>
-                                        </div>
-                                    </>
-                                )}
+                                <div className="flex items-center gap-1.5 px-3 py-1 bg-zinc-50 rounded-lg text-zinc-500 border border-zinc-100">
+                                    <IndianRupee className="size-3" />
+                                    <span className="text-[10px] font-black uppercase tracking-widest">Inc. {item.gst_percentage || 18}% GST</span>
+                                </div>
                             </div>
                         </div>
 
-                        <div className="flex items-center justify-between">
-                            <div className="flex items-baseline gap-2">
-                                <span className="text-2xl font-black text-zinc-900 tracking-tight">₹{unitPrice}</span>
-                                {item.mrp && item.mrp > unitPrice && (
-                                    <span className="text-sm text-zinc-400 line-through">₹{item.mrp}</span>
-                                )}
-                            </div>
-                            {item.mrp && item.mrp > unitPrice && (
-                                <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-1 rounded-lg uppercase tracking-wider">
-                                    {Math.round(((item.mrp - unitPrice) / item.mrp) * 100)}% SAVING
-                                </span>
-                            )}
-                        </div>
-                        {/* WYSHKIT 2026: Tax & Inventory Info */}
-                        <div className="flex items-center gap-2 text-[11px] font-medium text-zinc-500">
-                            <span>Inclusive of {item.gst_percentage || 18}% GST</span>
-                            {/* WYSHKIT 2026: Use variant stock if available, fallback to item-level */}
-                            {(() => {
-                                const activeStock = selectedVariant?.stock_quantity ?? item.stock_quantity;
-                                const threshold = item.low_stock_threshold || 5;
-                                if (activeStock !== null && activeStock !== undefined && activeStock < threshold) {
-                                    return (
-                                        <span className="text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded text-[10px] font-bold flex items-center gap-1">
-                                            <AlertTriangle className="size-3" />
-                                            Only {activeStock} left!
-                                        </span>
-                                    );
-                                }
-                                return null;
-                            })()}
-                        </div>
-
+                        {/* Variants Selection */}
                         {variantsArray.length > 0 && (
-                            <div className="space-y-4 bg-amber-50/50 p-4 rounded-2xl border border-amber-100/50">
+                            <section className="space-y-4">
                                 <div className="flex items-center justify-between">
-                                    <p className="text-sm font-bold text-zinc-900 tracking-tight">
-                                        {/* WYSHKIT 2026: Dynamic Label */}
-                                        {item.category === 'cake' ? 'Select weight' : 'Select option'}
-                                    </p>
-                                    <span className="text-[10px] font-bold text-amber-600 bg-amber-100 px-2 py-1 rounded-lg uppercase tracking-wider">Required</span>
+                                    <h3 className="text-[11px] font-black text-zinc-400 uppercase tracking-[0.2em]">Select Option</h3>
+                                    <span className="text-[9px] font-black text-amber-600 bg-amber-50 px-2 py-0.5 rounded-md border border-amber-100">REQUIRED</span>
                                 </div>
-                                <div className="flex flex-wrap gap-2">
-                                    {variantsArray.map((v: any) => (
-                                        <button
-                                            key={v.id}
-                                            onClick={() => setSelectedVariantId(String(v.id))}
-                                            className={cn(
-                                                "px-4 py-2.5 rounded-xl text-sm font-bold transition-all",
-                                                selectedVariantId === String(v.id)
-                                                    ? "bg-zinc-900 text-white shadow-lg shadow-zinc-200"
-                                                    : "bg-white text-zinc-700 hover:bg-zinc-50 border border-zinc-200/60"
-                                            )}
-                                        >
-                                            {v.name}
-                                            {(v.price ?? 0) > 0 && <span className="ml-1 text-xs opacity-70">+₹{v.price}</span>}
-                                        </button>
-                                    ))}
+                                <div className="grid grid-cols-2 gap-3">
+                                    {variantsArray.map((v: any) => {
+                                        const isSelected = selectedVariantId === String(v.id);
+                                        return (
+                                            <button
+                                                key={v.id}
+                                                onClick={() => { setSelectedVariantId(String(v.id)); triggerHaptic(HapticPattern.ACTION); }}
+                                                className={cn(
+                                                    "p-4 rounded-[24px] border-2 transition-all text-left group relative",
+                                                    isSelected
+                                                        ? "bg-zinc-900 border-zinc-900 text-white shadow-xl shadow-zinc-200"
+                                                        : "bg-white border-zinc-100 text-zinc-600 hover:border-zinc-200"
+                                                )}
+                                            >
+                                                <span className="text-sm font-black block leading-tight">{v.name}</span>
+                                                <div className="flex items-baseline gap-1 mt-1">
+                                                    <span className={cn("text-xs font-bold", isSelected ? "text-white" : "text-zinc-900")}>{formatCurrency(v.price)}</span>
+                                                    {v.price > 0 && <span className="text-[10px] opacity-40">Extra</span>}
+                                                </div>
+                                                {isSelected && (
+                                                    <div className="absolute top-3 right-3">
+                                                        <div className="size-4 bg-white rounded-full flex items-center justify-center">
+                                                            <Check className="size-2.5 text-zinc-900 stroke-[4]" />
+                                                        </div>
+                                                    </div>
+                                                )}
+                                            </button>
+                                        );
+                                    })}
                                 </div>
-                            </div>
+                            </section>
                         )}
-                        {/* WYSHKIT 2026: Add-ons (Personalization & Extras) */}
-                        {addonsArray.length > 0 && (
-                            <div className="space-y-3">
+
+                        {/* Identity Section (WYSHKIT 2026 AUDIT FIX) */}
+                        {personalizationArray.length > 0 && (
+                            <section className="space-y-4">
                                 <div className="flex items-center justify-between">
-                                    <p className="text-sm font-bold text-zinc-900 tracking-tight">
-                                        Add-ons
-                                    </p>
-                                    <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-tight">Optional</span>
+                                    <div className="flex items-center gap-2">
+                                        <Sparkles className="size-4 text-amber-500" />
+                                        <h3 className="text-[11px] font-black text-zinc-950 uppercase tracking-[0.2em]">Add Identity</h3>
+                                    </div>
+                                    <div className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-zinc-900 text-white text-[9px] font-black uppercase tracking-widest">
+                                        <Clock className="size-2.5" />
+                                        <span>4hr Preview</span>
+                                    </div>
                                 </div>
-                                <div className="space-y-2">
+
+                                {/* Non-returnable warning */}
+                                {selectedPersonalizations.length > 0 && (
+                                    <div className="flex items-center gap-3 p-4 bg-rose-50 border border-rose-100 rounded-2xl animate-in fade-in slide-in-from-top-2">
+                                        <AlertTriangle className="size-4 text-[#D91B24] shrink-0" />
+                                        <p className="text-[10px] font-bold text-[#D91B24] leading-tight uppercase tracking-wider">
+                                            Important: Identity-linked items are non-returnable and non-refundable.
+                                        </p>
+                                    </div>
+                                )}
+
+                                <div className="space-y-3">
+                                    {personalizationArray.map((p: any) => {
+                                        const isSelected = selectedAddonIds.has(p.id);
+                                        return (
+                                            <button
+                                                key={p.id}
+                                                onClick={() => {
+                                                    const next = new Set(selectedAddonIds);
+                                                    if (next.has(p.id)) next.delete(p.id);
+                                                    else { next.add(p.id); triggerHaptic(HapticPattern.SUCCESS); }
+                                                    setSelectedAddonIds(next);
+                                                }}
+                                                className={cn(
+                                                    "w-full flex items-center justify-between p-5 rounded-[24px] border-2 transition-all text-left",
+                                                    isSelected
+                                                        ? "bg-[#D91B24]/5 border-[#D91B24] text-[#D91B24]"
+                                                        : "bg-white border-zinc-100 text-zinc-600 hover:border-zinc-200"
+                                                )}
+                                            >
+                                                <div className="flex gap-4">
+                                                    <div className={cn(
+                                                        "size-6 rounded-lg border-2 flex items-center justify-center transition-all shrink-0",
+                                                        isSelected ? "bg-[#D91B24] border-[#D91B24]" : "border-zinc-200"
+                                                    )}>
+                                                        {isSelected && <Check className="size-3.5 text-white stroke-[4]" />}
+                                                    </div>
+                                                    <div>
+                                                        <span className="text-[15px] font-black block leading-none">{p.name}</span>
+                                                        <span className="text-[10px] font-bold uppercase tracking-widest mt-1.5 opacity-60 block italic">Requires Design Approval</span>
+                                                    </div>
+                                                </div>
+                                                <span className="text-[15px] font-black tabular-nums">+{formatCurrency(p.price)}</span>
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                            </section>
+                        )}
+
+                        {/* Standard Add-ons Section */}
+                        {addonsArray.length > 0 && (
+                            <section className="space-y-4">
+                                <h3 className="text-[11px] font-black text-zinc-400 uppercase tracking-[0.2em]">Complementary Gifts</h3>
+                                <div className="space-y-3">
                                     {addonsArray.map((addon: any) => {
                                         const isSelected = selectedAddonIds.has(addon.id);
                                         return (
@@ -436,248 +456,148 @@ export function ItemDetailView({ item, onBack, partnerId }: ItemDetailViewProps)
                                                 onClick={() => {
                                                     const next = new Set(selectedAddonIds);
                                                     if (next.has(addon.id)) next.delete(addon.id);
-                                                    else next.add(addon.id);
+                                                    else { next.add(addon.id); triggerHaptic(HapticPattern.ACTION); }
                                                     setSelectedAddonIds(next);
                                                 }}
                                                 className={cn(
-                                                    "w-full flex items-center justify-between p-3 rounded-xl border-2 transition-all text-left",
+                                                    "w-full flex items-center justify-between p-5 rounded-[24px] border-2 transition-all text-left",
                                                     isSelected
                                                         ? "bg-zinc-900 border-zinc-900 text-white"
-                                                        : "bg-white border-zinc-100 text-zinc-700 hover:border-zinc-200"
+                                                        : "bg-white border-zinc-100 text-zinc-600 hover:border-zinc-200"
                                                 )}
                                             >
-                                                <div className="flex items-center gap-3">
+                                                <div className="flex gap-4">
                                                     <div className={cn(
-                                                        "size-5 rounded-md border flex items-center justify-center transition-colors",
-                                                        isSelected ? "bg-white border-white" : "border-zinc-300"
+                                                        "size-6 rounded-lg border-2 flex items-center justify-center transition-all shrink-0",
+                                                        isSelected ? "bg-white border-white" : "border-zinc-200"
                                                     )}>
-                                                        {isSelected && <Check className="size-3.5 text-zinc-900" />}
+                                                        {isSelected && <Check className="size-3.5 text-zinc-900 stroke-[4]" />}
                                                     </div>
                                                     <div>
-                                                        <span className="text-sm font-semibold block">{addon.name}</span>
-                                                        {addon.requires_preview && (
-                                                            <span className={cn("text-[10px] uppercase font-bold tracking-wide opacity-80", isSelected ? "text-purple-200" : "text-purple-600")}>
-                                                                Personalization
-                                                            </span>
-                                                        )}
+                                                        <span className="text-[15px] font-black block leading-none">{addon.name}</span>
                                                     </div>
                                                 </div>
-                                                <div className="font-bold text-sm">
-                                                    +₹{addon.price}
-                                                </div>
+                                                <span className="text-[15px] font-black tabular-nums">+{formatCurrency(addon.price)}</span>
                                             </button>
                                         );
                                     })}
                                 </div>
-                            </div>
+                            </section>
                         )}
 
-                        {/* WYSHKIT 2026: Product Specifications & Return Policy */}
-                        <div className="pt-4 border-t border-zinc-100 space-y-4">
-                            <div className="flex items-center justify-between">
-                                <div className="flex items-center gap-2">
-                                    <h3 className="text-sm font-bold text-zinc-900 tracking-tight">Product Details</h3>
-                                    <ChevronRight className="size-3.5 text-zinc-300" />
-                                </div>
-                                <div className={cn(
-                                    "flex items-center gap-1.5 px-2 py-1 rounded-lg border",
-                                    item.return_eligible
-                                        ? "bg-blue-50 border-blue-100 text-blue-700"
-                                        : "bg-orange-50 border-orange-100 text-orange-700"
-                                )}>
-                                    <Info className="size-3" />
-                                    <span className="text-[10px] font-black uppercase tracking-wider">
-                                        {item.return_eligible ? '7-day Return' : 'Non-returnable'}
+                        {/* Technical Metadata Table - WYSHKIT 2026 AUDIT FIX */}
+                        <section className="space-y-4 pt-6 border-t border-zinc-100">
+
+                            <div className="flex items-center gap-2">
+                                <h3 className="text-[11px] font-black text-zinc-950 uppercase tracking-[0.2em]">Product Specifications</h3>
+                                <div className="h-px flex-1 bg-zinc-100" />
+                            </div>
+
+                            <div className="grid grid-cols-1 gap-2 bg-zinc-50/50 rounded-[28px] p-2 border border-zinc-100">
+                                <div className="grid grid-cols-[1fr,2fr] gap-4 p-4 rounded-2xl bg-white border border-zinc-100/50">
+                                    <span className="text-[10px] font-black text-zinc-400 uppercase tracking-widest">Dimensions</span>
+                                    <span className="text-[13px] font-bold text-zinc-900 tracking-tight">
+                                        {item.length_cm || '–'} × {item.width_cm || '–'} × {item.height_cm || '–'} cm
                                     </span>
                                 </div>
-                                {item.fragile && (
-                                    <div className="flex items-center gap-1.5 px-2 py-1 rounded-lg border bg-rose-50 border-rose-100 text-rose-700">
-                                        <Package className="size-3" />
-                                        <span className="text-[10px] font-black uppercase tracking-wider">Fragile</span>
-                                    </div>
-                                )}
-                            </div>
-                            {item.packaging_type && (
-                                <div className="bg-zinc-50 p-3 rounded-xl border border-zinc-100/50">
-                                    <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider mb-1">Packaging</p>
-                                    <div className="flex items-center gap-1.5">
-                                        <Package className="size-3.5 text-zinc-400" />
-                                        <p className="text-sm font-medium text-zinc-900">{item.packaging_type}</p>
-                                    </div>
+                                <div className="grid grid-cols-[1fr,2fr] gap-4 p-4 rounded-2xl bg-white border border-zinc-100/50">
+                                    <span className="text-[10px] font-black text-zinc-400 uppercase tracking-widest">Weight</span>
+                                    <span className="text-[13px] font-bold text-zinc-900 tracking-tight">
+                                        {item.weight_kg ? `${item.weight_kg} kg` : item.weight_grams ? `${item.weight_grams} g` : '–'}
+                                    </span>
                                 </div>
-                            )}
-
-                            {/* WYSHKIT 2026: High-Trust Compliance Grid */}
-                            <div className="grid grid-cols-2 gap-3">
-                                {item.country_of_origin && (
-                                    <div className="bg-zinc-50 p-3 rounded-xl border border-zinc-100/50">
-                                        <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider mb-1">Origin</p>
-                                        <div className="flex items-center gap-1.5 text-zinc-900">
-                                            <Globe className="size-3.5 text-blue-500" />
-                                            <p className="text-sm font-medium">{item.country_of_origin}</p>
-                                        </div>
-                                    </div>
-                                )}
-                                {(item.fssai_license || item.partners?.fssai_license) && (
-                                    <div className="bg-zinc-50 p-3 rounded-xl border border-zinc-100/50">
-                                        <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider mb-1">FSSAI License</p>
-                                        <div className="flex items-center gap-1.5 text-zinc-900">
-                                            <ShieldCheck className="size-3.5 text-emerald-500" />
-                                            <p className="text-sm font-medium">{item.fssai_license || item.partners?.fssai_license}</p>
-                                        </div>
-                                    </div>
-                                )}
-                                {item.partners?.gstin && (
-                                    <div className="bg-zinc-50 p-3 rounded-xl border border-zinc-100/50">
-                                        <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider mb-1">Partner GSTIN</p>
-                                        <div className="flex items-center gap-1.5 text-zinc-900">
-                                            <Check className="size-3.5 text-zinc-400" />
-                                            <p className="text-sm font-medium uppercase">{(item.partners as any).gstin}</p>
-                                        </div>
-                                    </div>
-                                )}
+                                <div className="grid grid-cols-[1fr,2fr] gap-4 p-4 rounded-2xl bg-white border border-zinc-100/50">
+                                    <span className="text-[10px] font-black text-zinc-400 uppercase tracking-widest">Material</span>
+                                    <span className="text-[13px] font-bold text-zinc-900 tracking-tight">{item.material || 'Premium Finish'}</span>
+                                </div>
+                                <div className="grid grid-cols-[1fr,2fr] gap-4 p-4 rounded-2xl bg-white border border-zinc-100/50">
+                                    <span className="text-[10px] font-black text-zinc-400 uppercase tracking-widest">HSN Code</span>
+                                    <span className="text-[13px] font-bold text-emerald-600 tracking-widest">{item.hsn_code || '4901'} ({item.gst_percentage || 18}%)</span>
+                                </div>
                                 {item.manufacturer_info && (
-                                    <div className="col-span-2 bg-zinc-50 p-3 rounded-xl border border-zinc-100/50">
-                                        <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider mb-1">Manufacturer/Packer</p>
-                                        <div className="flex items-start gap-1.5 text-zinc-600">
-                                            <Factory className="size-3.5 mt-0.5 flex-shrink-0" />
-                                            <p className="text-[13px] leading-tight italic">{item.manufacturer_info}</p>
-                                        </div>
+                                    <div className="p-4 rounded-2xl bg-white border border-zinc-100/50 flex flex-col gap-2">
+                                        <span className="text-[10px] font-black text-zinc-400 uppercase tracking-widest">Manufacturer Details</span>
+                                        <span className="text-[12px] font-medium text-zinc-600 leading-snug italic line-clamp-2">
+                                            {item.manufacturer_info}
+                                        </span>
                                     </div>
                                 )}
                             </div>
 
-                            <div className="grid grid-cols-2 gap-3">
-                                {(item.weight_kg || item.weight_grams) && (
-                                    <div className="bg-zinc-50 p-3 rounded-xl border border-zinc-100/50">
-                                        <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider mb-1">Weight</p>
-                                        <p className="text-sm font-medium text-zinc-900">
-                                            {item.weight_kg ? `${item.weight_kg} kg` : `${item.weight_grams} g`}
-                                        </p>
-                                    </div>
-                                )}
-                                {(item.length_cm || item.width_cm || item.height_cm) && (
-                                    <div className="bg-zinc-50 p-3 rounded-xl border border-zinc-100/50">
-                                        <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider mb-1">Dimensions</p>
-                                        <p className="text-sm font-medium text-zinc-900">
-                                            {item.length_cm || 0} x {item.width_cm || 0} x {item.height_cm || 0} cm
-                                        </p>
-                                    </div>
-                                )}
-                                {item.material && (
-                                    <div className="bg-zinc-50 p-3 rounded-xl border border-zinc-100/50">
-                                        <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider mb-1">Material</p>
-                                        <p className="text-sm font-medium text-zinc-900">{item.material}</p>
-                                    </div>
-                                )}
-                                {item.capacity && (
-                                    <div className="bg-zinc-50 p-3 rounded-xl border border-zinc-100/50">
-                                        <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider mb-1">Size/Capacity</p>
-                                        <p className="text-sm font-medium text-zinc-900">{item.capacity}</p>
-                                    </div>
-                                )}
-                                {item.care_instructions && (
-                                    <div className="bg-zinc-50 p-3 rounded-xl border border-zinc-100/50">
-                                        <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider mb-1">Care</p>
-                                        <p className="text-sm font-medium text-zinc-900">{item.care_instructions}</p>
-                                    </div>
-                                )}
-                                {item.hsn_code && (
-                                    <div className="bg-zinc-50 p-3 rounded-xl border border-zinc-100/50">
-                                        <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider mb-1">Tax/HSN</p>
-                                        <p className="text-sm font-medium text-zinc-900">HSN: {item.hsn_code}</p>
-                                    </div>
-                                )}
-                                {item.specifications && Object.entries(item.specifications).map(([key, value]) => (
-                                    <div key={key} className="bg-zinc-50 p-3 rounded-xl border border-zinc-100/50">
-                                        <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider mb-1">{key}</p>
-                                        <p className="text-sm font-medium text-zinc-900">{value as string}</p>
-                                    </div>
-                                ))}
-                            </div>
-
-                            {item.description && (
-                                <div className="pt-2">
-                                    <button
-                                        onClick={() => setShowDescription(!showDescription)}
-                                        className="w-full flex items-center justify-between py-2"
-                                    >
-                                        <span className="text-xs font-bold text-zinc-400 uppercase tracking-wider uppercase">More info</span>
-                                        <ChevronDown className={cn("size-3.5 text-zinc-400 transition-transform", showDescription && "rotate-180")} />
-                                    </button>
-                                    {showDescription && (
-                                        <p className="text-[13px] text-zinc-600 leading-relaxed pt-1 pb-1">{item.description}</p>
-                                    )}
+                            <div className="flex gap-2">
+                                <div className={cn(
+                                    "flex-1 flex items-center justify-center gap-2 py-4 rounded-2xl border-2 font-black uppercase tracking-widest text-[9px]",
+                                    item.return_eligible ? "bg-blue-50 border-blue-100 text-blue-600" : "bg-zinc-50 border-zinc-100 text-zinc-500"
+                                )}>
+                                    <Info className="size-3" />
+                                    {item.return_eligible ? '7-Day Return' : 'Final Sale - No Returns'}
                                 </div>
-                            )}
-                        </div>
+                                <div className="flex-1 flex items-center justify-center gap-2 py-4 rounded-2xl border-2 bg-zinc-50 border-zinc-100 text-zinc-500 font-black uppercase tracking-widest text-[9px]">
+                                    <ShieldCheck className="size-3" />
+                                    Quality Assured
+                                </div>
+                            </div>
+                        </section>
 
-                        {upsellItems.length > 0 && (
-                            <UpsellGrid
-                                items={upsellItems.map(u => ({
-                                    id: u.id,
-                                    name: u.name,
-                                    price: u.base_price || u.price,
-                                    image_url: u.images?.[0] || FALLBACK_IMAGE
-                                }))}
-                                title="Pairs well with"
-                                onAdd={async (u) => {
-                                    const optimisticData = {
-                                        itemName: u.name,
-                                        itemImage: u.image_url,
-                                        unitPrice: u.price,
-                                        partnerId: item.partner_id || undefined,
-                                        partnerName: item.partners?.name || item.partners?.display_name || undefined,
-                                    };
-                                    const res = await addToDraftOrder(u.id, null, { enabled: false }, [], 1, optimisticData);
-                                    if ('success' in res && res.success) toast.success(`Added ${u.name}`);
-                                }}
-                            />
+                        {/* Description Section */}
+                        {item.description && (
+                            <section className="space-y-3">
+                                <h3 className="text-[11px] font-black text-zinc-400 uppercase tracking-[0.2em]">About this product</h3>
+                                <p className="text-[15px] text-zinc-600 leading-relaxed font-medium">
+                                    {item.description}
+                                </p>
+                            </section>
                         )}
+
+                        {/* Upsell Items */}
+                        {upsellItems.length > 0 && (
+                            <div className="py-4">
+                                <UpsellGrid
+                                    items={upsellItems.map(u => ({
+                                        id: u.id,
+                                        name: u.name,
+                                        price: u.base_price || u.price,
+                                        image_url: u.images?.[0] || FALLBACK_IMAGE
+                                    }))}
+                                    title="Gift as a Hamper"
+                                    onAdd={async (u) => {
+                                        const res = await addToDraftOrder(u.id, null, { enabled: false }, [], 1, {
+                                            itemName: u.name, itemImage: u.image_url, unitPrice: u.price, partnerId: item.partner_id!
+                                        });
+                                        if ('success' in res) toast.success(`Added ${u.name}`);
+                                    }}
+                                />
+                            </div>
+                        )}
+
+                        {/* Buffer for footer */}
+                        <div className="h-10" />
                     </div>
                 </div>
 
-                {/* Static Footer */}
-                <div className="bg-white px-6 py-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] shadow-[0_-8px_30px_rgb(0_0_0/0.04)] border-t border-zinc-50 shrink-0">
-                    {draftOrder && draftOrder.itemCount > 0 && (
-                        <button
-                            type="button"
-                            onClick={() => { onBack?.(); router.push('/checkout'); }}
-                            className="w-full mb-3 py-2.5 px-4 rounded-xl bg-zinc-100 hover:bg-zinc-200 text-sm font-semibold text-zinc-900 flex items-center justify-between transition-colors"
-                        >
-                            <span>View cart · {draftOrder.itemCount} {draftOrder.itemCount === 1 ? 'item' : 'items'}</span>
-                            <span className="tabular-nums">₹{draftOrder.total?.toFixed(0) ?? 0}</span>
-                        </button>
-                    )}
-                    <div className="flex items-center gap-3">
-                        <div className="flex items-center bg-zinc-100 rounded-xl">
+                {/* Fixed Action Footer */}
+                <div className="bg-white px-6 py-6 pb-safe border-t border-zinc-50 shrink-0 shadow-[0_-20px_60px_-10px_rgba(0,0,0,0.05)]">
+                    <div className="flex items-center gap-4">
+                        <div className="flex items-center bg-zinc-100 rounded-2xl p-1 shrink-0">
                             <button
-                                className="size-11 flex items-center justify-center rounded-l-xl hover:bg-zinc-200 active:bg-zinc-300 transition-colors disabled:opacity-40"
-                                onClick={() => {
-                                    setQuantity(Math.max(1, quantity - 1));
-                                    triggerHaptic(HapticPattern.ACTION);
-                                }}
+                                className="size-10 flex items-center justify-center rounded-xl hover:bg-zinc-200 transition-colors disabled:opacity-20"
+                                onClick={() => { setQuantity(Math.max(1, quantity - 1)); triggerHaptic(HapticPattern.ACTION); }}
                                 disabled={quantity <= 1 || continuing}
                             >
-                                <Minus className="size-4 text-zinc-700" />
+                                <Minus className="size-4" />
                             </button>
-                            <span className="w-10 text-center text-base font-semibold text-zinc-900 tabular-nums">
-                                {quantity}
-                            </span>
+                            <span className="w-8 text-center text-sm font-black tabular-nums">{quantity}</span>
                             <button
-                                className="size-11 flex items-center justify-center rounded-r-xl hover:bg-zinc-200 active:bg-zinc-300 transition-colors disabled:opacity-40"
-                                onClick={() => {
-                                    setQuantity(quantity + 1);
-                                    triggerHaptic(HapticPattern.ACTION);
-                                }}
+                                className="size-10 flex items-center justify-center rounded-xl hover:bg-zinc-200 transition-colors disabled:opacity-20"
+                                onClick={() => { setQuantity(quantity + 1); triggerHaptic(HapticPattern.ACTION); }}
                                 disabled={continuing}
                             >
-                                <Plus className="size-4 text-zinc-700" />
+                                <Plus className="size-4" />
                             </button>
                         </div>
 
                         <button
-                            className="flex-1 h-11 bg-zinc-900 hover:bg-zinc-800 text-white font-semibold text-[15px] rounded-xl active:scale-[0.98] transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                            className="flex-1 h-12 bg-zinc-950 hover:bg-zinc-900 text-white font-black text-[13px] uppercase tracking-widest rounded-2xl active:scale-[0.98] transition-all flex items-center justify-center gap-3 disabled:opacity-50"
                             onClick={handleAddToCart}
                             disabled={continuing || !canAdd}
                         >
@@ -685,9 +605,9 @@ export function ItemDetailView({ item, onBack, partnerId }: ItemDetailViewProps)
                                 <Loader2 className="size-5 animate-spin" />
                             ) : (
                                 <>
-                                    <span>Add</span>
-                                    <span className="text-white/60">•</span>
-                                    <span>₹{totalPrice}</span>
+                                    <span>Add to Cart</span>
+                                    <div className="h-4 w-px bg-white/20" />
+                                    <span>{formatCurrency(totalPrice)}</span>
                                 </>
                             )}
                         </button>

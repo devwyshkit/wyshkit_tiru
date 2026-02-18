@@ -1,6 +1,6 @@
 export * from './core'
-export * from './delivery'
 export * from './distance'
+
 export * from './error-handler'
 export * from './estimate'
 export * from './gstin'

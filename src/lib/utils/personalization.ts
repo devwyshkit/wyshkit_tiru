@@ -13,11 +13,16 @@ export interface PersonalizationCheckItem {
  * Universal check to see if an item requires personalization input.
  * Supports both Legacy (is_personalized flag) and New (Add-ons with requires_preview).
  */
-export function hasItemPersonalization(item: PersonalizationCheckItem): boolean {
-  if (item.hasPersonalization === true) return true;
-  if (item.personalization?.enabled && item.personalization?.optionId) return true;
-  const addons = item.selectedAddons || [];
-  return addons.some((a) => !!a.requires_preview);
+export function hasItemPersonalization(item: any): boolean {
+  // Check both snake_case and camelCase for resilience
+  if (item.has_personalization === true || item.hasPersonalization === true) return true;
+  if (item.is_personalized === true) return true;
+
+  const pers = item.personalization || {};
+  if (pers.enabled && pers.optionId) return true;
+
+  const addons = item.selected_addons || item.selectedAddons || [];
+  return addons.some((a: any) => !!a.requires_preview);
 }
 
 /**

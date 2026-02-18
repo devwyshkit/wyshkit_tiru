@@ -179,7 +179,7 @@ export function ProfilePage({ initialTab: propTab, initialAction }: ProfileSurfa
       )}
 
       {/* Content Area */}
-      <div className="flex-1 overflow-y-auto">
+      <div className="flex-1 overflow-y-auto overscroll-contain custom-scrollbar pb-24">
         {activeTab === 'account' && (
           <div className="p-6 space-y-6">
             {(permissions?.isPartner || permissions?.isAdmin) && (

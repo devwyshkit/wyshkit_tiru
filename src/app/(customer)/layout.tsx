@@ -11,8 +11,8 @@ import { NavShell } from "@/components/layout/NavShell";
 /**
  * WYSHKIT 2026: Customer Layout - Singleton State & Route-Based Navigation
  */
-export const dynamic = 'force-dynamic';
-export const experimental_ppr = true;
+// export const dynamic = 'force-dynamic';
+// export const experimental_ppr = true;
 
 export default function CustomerLayout({
   children,

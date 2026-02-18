@@ -1,7 +1,6 @@
 "use client";
 
 import { ReactNode, useEffect } from "react";
-import { PullToRefresh } from "@/components/layout/PullToRefresh";
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
 
 interface HomeClientProps {
@@ -15,9 +14,6 @@ export function HomeClient({ children, initialLat, initialLng }: HomeClientProps
   const pathname = usePathname();
   const searchParams = useSearchParams();
 
-  const handleRefresh = async () => {
-    router.refresh();
-  };
 
   useEffect(() => {
     // WYSHKIT 2026: Intent-Based Navigation - URL represents intent
@@ -60,16 +56,14 @@ export function HomeClient({ children, initialLat, initialLng }: HomeClientProps
         () => {
           // Geolocation denied or unavailable - silent fail
         },
-        { enableHighAccuracy: true, timeout: 5000, maximumAge: 0 }
+        { enableHighAccuracy: true, timeout: 5000, maximumAge: 300000 }
       );
     }
   }, [initialLat, initialLng, pathname, router, searchParams]);
 
   return (
-    <PullToRefresh onRefresh={handleRefresh}>
-      <div className="relative">
-        {children}
-      </div>
-    </PullToRefresh>
+    <div className="relative">
+      {children}
+    </div>
   );
 }

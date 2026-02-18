@@ -47,6 +47,13 @@ export interface DraftLineItem {
   personalization?: SelectedPersonalization;
   selectedAddons?: SelectedAddon[];
   partnerName?: string;
+  partnerId?: string | null;
+  // WYSHKIT 2026: Hydration fields for Checkout
+  basePrice?: number;
+  variantPrice?: number;
+  variantName?: string;
+  personalizationPrice?: number;
+  addonsPrice?: number;
 }
 
 export interface DraftTransaction {

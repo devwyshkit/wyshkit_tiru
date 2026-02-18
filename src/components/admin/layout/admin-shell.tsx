@@ -4,15 +4,15 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
-import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet'
-import { 
-  LayoutDashboard, 
-  Store, 
-  ShoppingCart, 
-  Package, 
-  Layers, 
-  Tag, 
-  MapPin, 
+import { Sheet, SheetContent, SheetTrigger, SheetTitle } from '@/components/ui/sheet'
+import {
+  LayoutDashboard,
+  Store,
+  ShoppingCart,
+  Package,
+  Layers,
+  Tag,
+  MapPin,
   Menu,
   LogOut,
   Users,
@@ -115,6 +115,7 @@ export function AdminShell({ admin, children }: AdminShellProps) {
               </Button>
             </SheetTrigger>
             <SheetContent side="left" className="w-56 p-0">
+              <SheetTitle className="sr-only">Main Menu</SheetTitle>
               <div className="flex h-14 items-center border-b border-zinc-200 px-4">
                 <span className="font-semibold text-zinc-900">Wyshkit</span>
               </div>

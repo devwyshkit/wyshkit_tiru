@@ -23,7 +23,7 @@ export function InterceptedLocationClient() {
                 <SheetTitle className="sr-only">Delivery Location</SheetTitle>
                 <ModalHeader title="Delivery Location" />
                 <div className="flex-1 overflow-hidden relative min-h-0">
-                    <LocationSheet isRouteContext={false} />
+                    <LocationSheet isRouteContext={false} onSelect={() => router.back()} />
                 </div>
             </SheetContent>
         </Sheet>

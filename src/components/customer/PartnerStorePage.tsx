@@ -1,8 +1,7 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
-import { useSearchParams } from 'next/navigation';
-import { Star, Clock, MapPin } from 'lucide-react';
+import React, { useState } from 'react';
+import { Star, Clock, MapPin, Search, ChevronRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { MappedPartner } from '@/lib/types/partner';
 import type { ItemListItem } from '@/lib/types/item';
@@ -14,100 +13,48 @@ import { ContextualGrid } from '@/components/customer/ContextualGrid';
 import { ShareButton } from '@/components/ui/ShareButton';
 import Image from 'next/image';
 import { useRouter } from 'next/navigation';
-import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet';
-import { ItemDetailView } from '@/components/customer/item/ItemDetailView';
-import { getItemWithFullSpec } from '@/lib/actions/item-actions';
-import { ItemWithFullSpec } from '@/lib/supabase/types';
+import { cn } from '@/lib/utils';
 
 const FALLBACK_IMAGE = '/images/logo.png';
 
 interface PartnerStorePageProps {
   partnerId: string;
   initialData?: MappedPartner;
-  initialItems?: StorePageItem[]; // WYSHKIT 2026: Server-side fetched items (partial from getPartnerStoreData)
+  initialItems?: any[]; // Relaxed for flexible data shapes in Swiggy 2026 Shift
 }
 
 export function PartnerStorePage({ partnerId, initialData, initialItems }: PartnerStorePageProps) {
   const router = useRouter();
-  const searchParams = useSearchParams();
-  const itemParam = searchParams.get('item');
 
   // WYSHKIT 2026: Server-First - Data comes entirely from props
   const partner = initialData!;
-  const items = initialItems || [];
+  const allItems = initialItems || [];
 
-  // Sheet state
-  const [itemSheetData, setItemSheetData] = useState<ItemWithFullSpec | null>(null);
-  const [itemSheetOpen, setItemSheetOpen] = useState(false);
-  const [itemSheetLoading, setItemSheetLoading] = useState(false);
-  const [itemSheetUnavailable, setItemSheetUnavailable] = useState(false);
-  const latestItemParamRef = useRef<string | null>(null);
-  latestItemParamRef.current = itemParam;
+  // Filter state
+  const [selectedCategory, setSelectedCategory] = useState<string>('Recommended');
 
-  useEffect(() => {
-    if (!itemParam) {
-      setItemSheetData(null);
-      setItemSheetOpen(false);
-      setItemSheetLoading(false);
-      setItemSheetUnavailable(false);
-      return;
-    }
-    setItemSheetOpen(true);
-    setItemSheetLoading(true);
-    setItemSheetUnavailable(false);
-    const requestedId = itemParam;
-    getItemWithFullSpec(itemParam)
-      .then(({ data, error }) => {
-        const currentItem = latestItemParamRef.current;
-        if (currentItem !== requestedId) return;
-        setItemSheetLoading(false);
-        if (error || !data) {
-          setItemSheetUnavailable(true);
-          setItemSheetData(null);
-          return;
-        }
-        setItemSheetUnavailable(false);
-        setItemSheetData(data);
-        if (process.env.NODE_ENV === 'development') {
-          console.log('[PartnerStorePage] item sheet data received', {
-            id: (data as any)?.id,
-            variants: (data as any)?.variants?.length ?? 0,
-            item_addons: (data as any)?.item_addons?.length ?? 0,
-            hasDescription: !!(data as any)?.description,
-          });
-        }
-      })
-      .catch((err) => {
-        if (latestItemParamRef.current !== requestedId) return;
-        setItemSheetLoading(false);
-        setItemSheetUnavailable(true);
-        setItemSheetData(null);
-        console.error('[PartnerStorePage] getItemWithFullSpec failed', err);
-      });
-  }, [itemParam]);
+  // Categories extraction
+  const categories = React.useMemo(() => {
+    const cats = Array.from(new Set(allItems.map(i => i.category)))
+      .filter((c): c is string => Boolean(c));
+    return ['Recommended', ...cats];
+  }, [allItems]);
 
-  const handleItemSheetClose = () => {
-    setItemSheetOpen(false);
-    router.replace(`/partner/${partnerId}`, { scroll: false });
-  };
+  // Filtered items
+  const displayItems = React.useMemo(() => {
+    if (selectedCategory === 'Recommended') return allItems;
+    return allItems.filter(i => i.category === selectedCategory);
+  }, [allItems, selectedCategory]);
+
 
   const displayName = partner?.name || initialData?.name || 'Partner';
   const displayImage = partner?.imageUrl || initialData?.imageUrl || FALLBACK_IMAGE;
   const displayRating = partner?.rating || initialData?.rating;
   const displayCity = partner?.city || initialData?.city || 'Local Partner';
-
-  // Note: v_partners_detailed doesn't have prepHours/deliveryFee, but the partners table does.
-  // API returns them if joined or if it's returning PartnerFull.
   const displayPrepHours = (partner as any)?.prep_hours || initialData?.prepHours || 24;
   const displayDeliveryFee = (partner as any)?.delivery_fee ?? initialData?.deliveryFee ?? 0;
   const displayDescription = partner?.description || initialData?.description || 'Discover quality items from this local partner.';
 
-  // WYSHKIT 2026: Server-First Data Fetching - Data MUST come from Server Component
-  // Swiggy Pattern: "Data Should Come to User, Not User Go to Data"
-  // Initialize state from server-provided data (no useEffect needed - use initial state)
-
-  // WYSHKIT 2026: If data missing, show error (don't fetch client-side)
-  // Server Component MUST provide data - this is a contract violation
   if (!initialData || !initialItems) {
     return (
       <div className="flex flex-col items-center justify-center h-[60vh] p-6 text-center bg-background">
@@ -119,86 +66,9 @@ export function PartnerStorePage({ partnerId, initialData, initialItems }: Partn
   }
 
   return (
-    <div className="animate-in fade-in duration-500">
-      <StoreContent
-        displayName={displayName}
-        displayImage={displayImage}
-        displayRating={displayRating}
-        displayCity={displayCity}
-        displayPrepHours={displayPrepHours}
-        displayDeliveryFee={displayDeliveryFee}
-        displayDescription={displayDescription}
-        items={items}
-        itemsLoading={false} // Server-first => always loaded
-        partnerId={partnerId}
-      />
-      <Sheet open={itemSheetOpen} onOpenChange={(open) => !open && handleItemSheetClose()}>
-        <SheetContent
-          side="bottom"
-          hideClose
-          className="h-[85dvh] rounded-t-[32px] border-x border-t border-zinc-100 p-0 gap-0 md:max-w-[520px] md:left-1/2 md:right-auto md:-translate-x-1/2 flex flex-col overflow-hidden"
-        >
-          <SheetTitle className="sr-only">{itemSheetData?.name || 'Product Details'}</SheetTitle>
-          <div className="mt-4 flex justify-center">
-            <div className="h-1 w-12 rounded-full bg-zinc-200" aria-hidden />
-          </div>
-          <div className="flex-1 relative min-h-0">
-            {itemSheetLoading ? (
-              <div className="flex flex-col items-center justify-center py-16 px-4">
-                <div className="size-10 border-2 border-zinc-200 border-t-zinc-900 rounded-full animate-spin mb-4" />
-                <p className="text-sm font-medium text-zinc-500">Loading product...</p>
-              </div>
-            ) : itemSheetUnavailable || !itemSheetData ? (
-              <div className="flex flex-col items-center justify-center py-16 px-4 text-center">
-                <p className="text-base font-semibold text-zinc-900">Product unavailable</p>
-                <p className="text-sm text-zinc-500 mt-1">This item may be pending or no longer listed.</p>
-                <Button onClick={handleItemSheetClose} variant="outline" className="mt-4 rounded-xl">
-                  Close
-                </Button>
-              </div>
-            ) : (
-              <ItemDetailView item={itemSheetData} onBack={handleItemSheetClose} partnerId={partnerId} />
-            )}
-          </div>
-        </SheetContent>
-      </Sheet>
-    </div>
-  );
-}
-
-/**
- * WYSHKIT 2026: Internal StoreContent component (DRY)
- * Swiggy 2026 Pattern: Same content, different containers (Page vs Sheet)
- */
-function StoreContent({
-  displayName,
-  displayImage,
-  displayRating,
-  displayCity,
-  displayPrepHours,
-  displayDeliveryFee,
-  displayDescription,
-  items,
-  itemsLoading,
-  partnerId,
-}: {
-  displayName: string;
-  displayImage: string;
-  displayRating?: number;
-  displayCity: string;
-  displayPrepHours: number;
-  displayDeliveryFee: number;
-  displayDescription: string;
-  items: StorePageItem[];
-  itemsLoading: boolean;
-  partnerId: string;
-}) {
-  return (
-    <>
-      <div
-        style={{ viewTransitionName: `partner-${partnerId}` }}
-        className="relative aspect-[2.5/1] md:aspect-[3/1] w-full bg-zinc-100"
-      >
+    <div className="animate-in fade-in duration-500 min-h-screen bg-white">
+      {/* Header Banner */}
+      <div className="relative aspect-[2.5/1] md:aspect-[4/1] w-full bg-zinc-100">
         <Image
           src={displayImage}
           alt={displayName}
@@ -210,85 +80,152 @@ function StoreContent({
           }}
         />
         <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-black/10 to-transparent" />
+
+        {/* Back Button */}
+        <button
+          onClick={() => router.back()}
+          className="absolute top-4 left-4 z-20 size-10 rounded-full bg-white/20 backdrop-blur-md flex items-center justify-center text-white hover:bg-white/40 active:scale-95 transition-all"
+        >
+          <span className="text-xl font-black">←</span>
+        </button>
       </div>
 
-      <div className="px-3 -mt-12 relative z-10">
-        <div className="bg-white rounded-[24px] p-4 shadow-[0_8px_32px_-8px_rgba(0,0,0,0.12)] border border-zinc-100/50 backdrop-blur-xl">
-          <div className="flex items-start justify-between gap-3">
+      {/* Partner Info Card */}
+      <div className="px-4 -mt-10 relative z-10 max-w-[1200px] mx-auto">
+        <div className="bg-white rounded-[28px] p-5 shadow-[0_12px_44px_-8px_rgba(0,0,0,0.12)] border border-zinc-100/80 backdrop-blur-xl">
+          <div className="flex items-start justify-between gap-4">
             <div className="flex-1 min-w-0">
-              <h1 className="text-[22px] font-bold text-zinc-950 leading-tight tracking-tight line-clamp-2">
+              <h1 className="text-2xl font-black text-zinc-950 leading-tight tracking-tighter line-clamp-2 uppercase">
                 {displayName}
               </h1>
-              <div className="flex items-center gap-1.5 mt-1 text-[13px] font-medium text-zinc-500">
-                <MapPin className="size-3.5 text-zinc-400 shrink-0" />
-                <span className="truncate">{displayCity}</span>
+              <div className="flex items-center gap-2 mt-1.5 text-[13px] font-bold text-zinc-500">
+                <div className="flex items-center gap-1">
+                  <MapPin className="size-3.5 text-zinc-400" />
+                  <span className="truncate">{displayCity}</span>
+                </div>
+                <span className="text-zinc-400">|</span>
+                <span className="text-zinc-400 uppercase tracking-widest text-[10px]">Local Store</span>
               </div>
             </div>
-            <div className="flex items-start gap-2 shrink-0">
+            <div className="flex items-start gap-3 shrink-0">
               <ShareButton
                 title={displayName}
                 url={`/partner/${partnerId}`}
-                className="bg-zinc-50 size-10 rounded-full flex items-center justify-center text-zinc-900 hover:bg-zinc-100 transition-all border border-zinc-100"
+                className="bg-zinc-50 size-11 rounded-2xl flex items-center justify-center text-zinc-900 hover:bg-zinc-100 transition-all border border-zinc-100 shadow-sm"
               />
               {displayRating && (
-                <div className="flex flex-col items-center bg-zinc-900 px-2.5 py-1.5 rounded-[14px] shadow-sm min-w-[50px]">
-                  <div className="flex items-center gap-0.5">
-                    <span className="text-[14px] font-bold text-white leading-none">{displayRating.toFixed(1)}</span>
+                <div className="flex flex-col items-center bg-zinc-900 px-3 py-2 rounded-2xl shadow-xl min-w-[56px]">
+                  <div className="flex items-center gap-1">
+                    <span className="text-[15px] font-black text-white leading-none tracking-tighter">{displayRating.toFixed(1)}</span>
                     <Star className="size-3 fill-white text-white" />
                   </div>
-                  <span className="text-[8px] font-bold text-zinc-400 uppercase tracking-wider mt-0.5">Rating</span>
+                  <span className="text-[8px] font-black text-zinc-400 uppercase tracking-widest mt-1">Rating</span>
                 </div>
               )}
             </div>
           </div>
 
-          <div className="flex items-center gap-3 mt-4 pt-4 border-t border-dashed border-zinc-100">
-            <div className="flex items-center gap-1.5 text-[11px] font-bold text-zinc-700 uppercase tracking-wide bg-zinc-50 px-2 py-1 rounded-lg">
-              <Clock className="size-3.5 text-zinc-400" />
+          <div className="flex items-center gap-4 mt-5 pt-5 border-t border-dashed border-zinc-100">
+            <div className="flex items-center gap-2 text-[11px] font-black text-zinc-700 uppercase tracking-widest bg-zinc-50 px-3 py-1.5 rounded-xl border border-zinc-100">
+              <Clock className="size-3.5 text-emerald-600" />
               <span>{displayPrepHours}h prep</span>
             </div>
-            <div className="flex items-center gap-1.5 text-[11px] font-bold text-zinc-700 uppercase tracking-wide bg-zinc-50 px-2 py-1 rounded-lg">
-              <span>{displayDeliveryFee === 0 ? 'Free delivery' : `₹${displayDeliveryFee} fee`}</span>
-            </div>
           </div>
         </div>
       </div>
 
-      <div className="px-3 py-6">
-        <div className="flex items-end justify-between mb-4 px-1">
-          <h2 className="text-[18px] font-bold text-zinc-950 tracking-tight leading-none">Recommended ({items.length})</h2>
-        </div>
-
-        {itemsLoading ? (
-          <div className="grid grid-cols-2 gap-3">
-            {[1, 2, 3, 4].map((i) => (
-              <div key={i} className="aspect-[4/5] bg-zinc-50 rounded-[20px] animate-pulse" />
-            ))}
-          </div>
-        ) : items.length > 0 ? (
-          <ContextualGrid variant="items">
-            {items.map((item, index) => (
-              <div
-                key={item.id}
-                className="animate-in fade-in slide-in-from-bottom-4 duration-500 fill-mode-backwards"
-                style={{ animationDelay: `${index * 30}ms` }}
+      {/* TWO-LAYER BROWSE AREA */}
+      <div className="flex flex-col md:flex-row max-w-[1440px] mx-auto min-h-[70vh] relative pt-8">
+        {/* WYSHKIT 2026: Sticky Sidebar Browse Pattern */}
+        {/* Mobile: Horizontal Pill Rail (top-sticky), Desktop: Vertical Strip (left-sticky) */}
+        <aside className="md:w-28 md:border-r border-zinc-100 flex md:flex-col gap-4 py-4 px-4 md:px-0 shrink-0 bg-white md:sticky md:top-16 md:h-[calc(100vh-64px)] overflow-x-auto md:overflow-y-auto no-scrollbar md:overscroll-contain z-20 top-0 sticky border-b md:border-b-0">
+          <div className="flex md:flex-col gap-4 md:gap-6 min-w-max md:min-w-0">
+            {categories.map((cat) => (
+              <button
+                key={cat}
+                onClick={() => setSelectedCategory(cat)}
+                className="flex md:flex-col items-center gap-2 px-1 group outline-none"
               >
-                <ItemCard
-                  item={item}
-                  partnerId={partnerId}
-                  priority={index < 4}
-                />
-              </div>
+                <div className={cn(
+                  "size-12 md:size-16 rounded-[20px] bg-zinc-50 group-hover:bg-zinc-100 transition-all flex items-center justify-center border border-zinc-100 group-active:scale-90",
+                  selectedCategory === cat && "bg-zinc-900 border-zinc-900 ring-4 ring-zinc-900/5"
+                )}>
+                  <span className={cn(
+                    "text-[10px] md:text-[11px] font-black uppercase tracking-tighter text-zinc-400",
+                    selectedCategory === cat && "text-white"
+                  )}>
+                    {cat.slice(0, 3)}
+                  </span>
+                </div>
+                <span className={cn(
+                  "text-[10px] md:text-[11px] font-black uppercase tracking-tight text-center leading-tight transition-colors",
+                  selectedCategory === cat ? "text-zinc-900" : "text-zinc-400 group-hover:text-zinc-600"
+                )}>
+                  {cat}
+                </span>
+              </button>
             ))}
-          </ContextualGrid>
-        ) : (
-          <div className="py-12 text-center bg-zinc-50 rounded-[24px] border border-dashed border-zinc-200">
-            <p className="text-[11px] font-bold text-zinc-400 uppercase tracking-widest">No items found</p>
           </div>
-        )}
+
+          {/* WYSHKIT 2026: Browse Menu Button (Mobile Swiggy Pattern) */}
+          <div className="md:hidden flex-1" />
+          <button
+            onClick={() => document.getElementById('menu-items')?.scrollIntoView({ behavior: 'smooth' })}
+            className="md:hidden bg-zinc-900 text-white px-4 py-2 rounded-full text-[10px] font-black uppercase tracking-widest shadow-xl flex items-center gap-2"
+          >
+            <Search className="size-3" /> Browse Menu
+          </button>
+        </aside>
+
+        {/* Product Grid Area */}
+        <div id="menu-items" className="flex-1 px-4 md:px-10 py-6 md:py-10">
+          <div className="flex items-center justify-between mb-8">
+            <div>
+              <h2 className="text-xl md:text-2xl font-black text-zinc-950 tracking-tighter uppercase leading-none">
+                {selectedCategory === 'Recommended' ? 'Recommended Items' : selectedCategory}
+              </h2>
+              <p className="text-[10px] font-black text-zinc-400 uppercase tracking-[0.2em] mt-2">
+                {selectedCategory === 'Recommended' ? 'Bestselling items from this store' : `Items in ${selectedCategory}`}
+              </p>
+            </div>
+
+
+          </div>
+
+          {displayItems.length > 0 ? (
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-x-4 gap-y-12 md:gap-x-8 md:gap-y-16">
+              {displayItems.map((item, index) => (
+                <div
+                  key={item.id}
+                  className="animate-in fade-in slide-in-from-bottom-8 duration-700 fill-mode-backwards"
+                  style={{ animationDelay: `${index * 60}ms` }}
+                >
+                  <ItemCard
+                    item={item}
+                    partnerId={partnerId}
+                    priority={index < 8}
+                    className="hover:-translate-y-2 transition-transform duration-500 ease-out"
+                  />
+                </div>
+              ))}
+            </div>
+
+          ) : (
+            <div className="py-24 text-center bg-zinc-50/50 rounded-[40px] border border-dashed border-zinc-200/60 flex flex-col items-center justify-center">
+              <div className="size-20 rounded-full bg-zinc-100 flex items-center justify-center mb-6">
+                <span className="text-3xl grayscale opacity-50">🚚</span>
+              </div>
+              <p className="text-[11px] font-black text-zinc-400 uppercase tracking-[0.25em]">No products currently available</p>
+              <Button onClick={() => router.back()} variant="link" className="mt-4 text-xs font-bold text-zinc-900">Check other stores</Button>
+            </div>
+          )}
+        </div>
       </div>
 
-      <div className="h-24" />
-    </>
+      {/* Cart Sheet / Floating Cart - Should be handled globally, but ensuring padding */}
+      <div className="h-24 md:h-12" />
+
+
+    </div>
   );
 }

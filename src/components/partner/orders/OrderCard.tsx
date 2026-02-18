@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { formatDistanceToNow, differenceInSeconds } from 'date-fns';
-import { Package, Clock, ChevronRight, X, Check, MapPin, Phone, AlertTriangle } from 'lucide-react';
+import { Package, Clock, ChevronRight, X, Check, MapPin, Phone, AlertTriangle, Zap } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
@@ -56,7 +56,7 @@ const getAvailableAction = (order: PartnerOrder) => {
     return { label: 'Start Preparing', nextStatus: ORDER_STATUS.IN_PRODUCTION };
   }
 
-  if (order.status === ORDER_STATUS.DETAILS_RECEIVED) {
+  if (order.status === ORDER_STATUS.DETAILS_RECEIVED || order.status === ORDER_STATUS.REVISION_REQUESTED) {
     return { label: 'Upload Preview', isUpload: true };
   }
 
@@ -90,6 +90,7 @@ const STATUS_COLORS: Partial<Record<OrderStatus, string>> = {
 export function OrderCard({ order, onAccept, onReject, onStatusUpdate, isUpdating }: OrderCardProps) {
   const [showRejectDialog, setShowRejectDialog] = useState(false);
   const [showPreviewModal, setShowPreviewModal] = useState(false);
+  const [selectedOrderItemId, setSelectedOrderItemId] = useState<string | null>(null);
   const [rejectReason, setRejectReason] = useState('');
   const [timeLeft, setTimeLeft] = useState<number | null>(null);
   const [designDeadlineLeft, setDesignDeadlineLeft] = useState<number | null>(null);
@@ -104,6 +105,7 @@ export function OrderCard({ order, onAccept, onReject, onStatusUpdate, isUpdatin
   // Rule: If CONFIRMED + Personalized, we must wait for customer.
   const isAwaitingCustomerDetails = order.status === ORDER_STATUS.CONFIRMED && order.has_personalization;
 
+  const isExpress = !order.has_personalization;
   const action = getAvailableAction(order);
 
   const statusColor = STATUS_COLORS[order.status as OrderStatus] || 'bg-zinc-100 text-zinc-700';
@@ -179,6 +181,25 @@ export function OrderCard({ order, onAccept, onReject, onStatusUpdate, isUpdatin
     <>
       <Card className="overflow-hidden">
         <CardContent className="p-0">
+          {/* WYSHKIT 2026: Revision Feedback Block (Momentum Saver) */}
+          {order.status === ORDER_STATUS.REVISION_REQUESTED && order.latest_preview?.customer_feedback && (
+            <div className="p-4 bg-orange-50 border-b border-orange-100 animate-in slide-in-from-top-1 duration-500">
+              <div className="flex items-start gap-3">
+                <div className="size-8 rounded-full bg-orange-100 flex items-center justify-center shrink-0">
+                  <AlertTriangle className="size-4 text-orange-600" />
+                </div>
+                <div>
+                  <p className="text-[10px] font-black text-orange-900 uppercase tracking-widest leading-none mb-1">Action Required: Correction Requested</p>
+                  <p className="text-sm font-bold text-orange-800 leading-tight">
+                    "{order.latest_preview.customer_feedback}"
+                  </p>
+                  <p className="text-[10px] text-orange-600 mt-2 font-medium italic">
+                    Upload a corrected preview to proceed.
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
           <div className="p-4">
             <div className="flex items-start justify-between mb-3">
               <div className="flex items-center gap-3">
@@ -236,6 +257,13 @@ export function OrderCard({ order, onAccept, onReject, onStatusUpdate, isUpdatin
             </div>
 
             <div className="space-y-2 py-3 border-t border-zinc-100">
+              {isExpress && order.status === ORDER_STATUS.PLACED && (
+                <div className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 text-emerald-700 rounded-xl border border-emerald-100 mb-2 animate-in slide-in-from-top-1 duration-300">
+                  <Zap className="size-3 fill-emerald-600" />
+                  <span className="text-[10px] font-black uppercase tracking-widest">Express Fulfill</span>
+                  <span className="text-[9px] font-medium opacity-70 ml-auto">No personalization needed</span>
+                </div>
+              )}
               {order.order_items?.map((item, idx) => (
                 <div key={idx} className="flex items-start justify-between">
                   <div className="flex-1">
@@ -290,14 +318,28 @@ export function OrderCard({ order, onAccept, onReject, onStatusUpdate, isUpdatin
                       {data.image_url && (
                         <div className="relative aspect-square w-24 rounded-lg overflow-hidden border border-amber-200 group">
                           <img src={data.image_url} alt="Customer upload" className="size-full object-cover" />
-                          <a
-                            href={data.image_url}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center text-white text-[10px] font-bold transition-opacity"
-                          >
-                            VIEW FULL
-                          </a>
+                          <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex flex-col items-center justify-center gap-2 transition-opacity">
+                            <a
+                              href={data.image_url}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="text-white text-[10px] font-bold underline"
+                            >
+                              VIEW FULL
+                            </a>
+                            {item?.status === 'details_shared' && (
+                              <Button
+                                size="sm"
+                                className="h-6 px-2 text-[9px] bg-white text-zinc-900 border-none hover:bg-zinc-100"
+                                onClick={() => {
+                                  setSelectedOrderItemId(item.id);
+                                  setShowPreviewModal(true);
+                                }}
+                              >
+                                UPLOAD PREVIEW
+                              </Button>
+                            )}
+                          </div>
                         </div>
                       )}
                       {data.addons && Array.isArray(data.addons) && (
@@ -328,12 +370,24 @@ export function OrderCard({ order, onAccept, onReject, onStatusUpdate, isUpdatin
               <div className="w-px bg-zinc-100" />
               <Button
                 variant="ghost"
-                className="flex-1 rounded-none h-12 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50"
-                onClick={() => onAccept(order.id)}
+                className={cn(
+                  "flex-1 rounded-none h-12 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 font-bold",
+                  isExpress && "bg-emerald-50 animate-in fade-in duration-500"
+                )}
+                onClick={() => isExpress ? onStatusUpdate(order.id, ORDER_STATUS.IN_PRODUCTION) : onAccept(order.id)}
                 disabled={isUpdating}
               >
-                <Check className="size-4 mr-2" />
-                Accept
+                {isExpress ? (
+                  <>
+                    <Zap className="size-4 mr-2 fill-emerald-600" />
+                    Accept & Start
+                  </>
+                ) : (
+                  <>
+                    <Check className="size-4 mr-2" />
+                    Accept
+                  </>
+                )}
               </Button>
             </div>
           ) : action ? (
@@ -404,11 +458,16 @@ export function OrderCard({ order, onAccept, onReject, onStatusUpdate, isUpdatin
       </Dialog>
       <PreviewUploader
         orderId={order.id}
+        orderItemId={selectedOrderItemId || ''}
         orderNumber={order.order_number!}
         isOpen={showPreviewModal}
-        onClose={() => setShowPreviewModal(false)}
+        onClose={() => {
+          setShowPreviewModal(false);
+          setSelectedOrderItemId(null);
+        }}
         onSuccess={() => {
           setShowPreviewModal(false);
+          setSelectedOrderItemId(null);
           // Status update is handled inside PreviewUploader via lib/actions
         }}
       />

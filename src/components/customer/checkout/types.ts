@@ -32,6 +32,7 @@ export interface HydratedDraftItem extends DraftItem {
   variantName?: string;
   personalizationPrice: number;
   partnerId?: string | null;
+  partnerName?: string;
 }
 
 /**

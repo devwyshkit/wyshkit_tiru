@@ -2,7 +2,7 @@
 
 import { Suspense, use } from "react";
 import { OrderDetailsPageClient } from "@/components/customer/orders/OrderDetailsPageClient";
-import { Sheet, SheetContent } from "@/components/ui/sheet";
+import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { useRouter } from "next/navigation";
 
 /**
@@ -31,6 +31,7 @@ export default function InterceptedOrderDetailsPage({
         hideClose
         className="h-auto max-h-[85dvh] rounded-t-[32px] border-x border-t border-zinc-100 p-0 gap-0 flex flex-col"
       >
+        <SheetTitle className="sr-only">Order Details</SheetTitle>
         <div className="pt-2 pb-4 flex justify-center shrink-0">
           <div className="h-1.5 w-12 rounded-full bg-zinc-200" aria-hidden />
         </div>

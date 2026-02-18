@@ -15,17 +15,18 @@ export async function GET(req: NextRequest) {
             return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
         }
 
-        const result = await enforceAcceptanceDeadlines();
+        const { enforceAcceptanceDeadlines, enforceDesignDeadlines } = await import('@/lib/services/deadlines');
 
-        if ('error' in result) {
-            return NextResponse.json({ error: result.error }, { status: 500 });
-        }
+        const acceptanceResult = await enforceAcceptanceDeadlines();
+        const designResult = await enforceDesignDeadlines();
 
         return NextResponse.json({
             success: true,
-            processedOrders: result.count,
+            processedAcceptance: acceptanceResult.count,
+            processedDesign: designResult.count,
             timestamp: new Date().toISOString()
         });
+
     } catch (error) {
         logger.error('Cron: EnforceDeadlines failed', error);
         return NextResponse.json({ error: 'Internal server error' }, { status: 500 });

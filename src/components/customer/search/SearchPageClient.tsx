@@ -10,6 +10,8 @@ import { searchFiltered } from "@/lib/actions/search";
 import type { Tables } from "@/lib/supabase/database.types";
 import { logger } from '@/lib/logging/logger';
 import { PartnerCard } from "@/components/customer/PartnerCard";
+import { Sheet, SheetContent } from "@/components/ui/sheet";
+import { ItemDetailView } from "@/components/customer/item/ItemDetailView";
 
 interface SearchPageClientProps {
   searchParams: Promise<{ q?: string; category?: string }>;
@@ -52,6 +54,8 @@ export function SearchPageClient({ searchParams, initialResults }: SearchPageCli
 
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<Error | null>(null);
+  const [selectedItem, setSelectedItem] = useState<Tables<'v_item_listings'> | null>(null);
+  const [isSheetOpen, setIsSheetOpen] = useState(false);
 
   // WYSHKIT 2026: Sync with URL params (for browser back/forward)
   useEffect(() => {
@@ -250,30 +254,44 @@ export function SearchPageClient({ searchParams, initialResults }: SearchPageCli
                 <p className="text-xs font-medium text-zinc-400 mb-3">Items</p>
                 <div className="space-y-2">
                   {results.items.map((item) => {
-                    // WYSHKIT 2026: Use route-based navigation
+                    // WYSHKIT 2026: Quick-Spec Model (Zero-Bounce)
                     const partnerId = (item as any).partnerId || (item as any).partner_id;
-                    const handleClick = () => {
-                      if (partnerId) {
-                        router.push(`/partner/${partnerId}?item=${item.id}`);
-                      } else {
-                        router.push(`/search?q=${encodeURIComponent((item.name as string) || '')}`);
-                      }
+
+                    const handleItemClick = () => {
+                      setSelectedItem(item);
+                      setIsSheetOpen(true);
+                    };
+
+                    const handleDirectAdd = (e: React.MouseEvent) => {
+                      e.stopPropagation();
+                      // WYSHKIT 2026: Always open sheet for "Direct-Add" to allow confirmation
+                      handleItemClick();
                     };
 
                     return (
-                      <button
-                        key={item.id as any}
-                        onClick={handleClick}
-                        className="w-full flex items-center gap-3 p-3 bg-zinc-50 rounded-xl hover:bg-zinc-100 transition-colors text-left"
-                      >
-                        <div className="size-12 rounded-lg overflow-hidden shrink-0 bg-zinc-50 relative border border-zinc-100">
-                          <Image src={(item.images as any)?.[0] ?? '/images/logo.png'} alt={(item.name as any) || 'Item'} fill className="object-cover" sizes="48px" />
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-semibold text-zinc-900 truncate">{item.name as any}</p>
-                          <p className="text-xs text-zinc-500">{(item.partner_name || 'Store')} · ₹{item.base_price}</p>
-                        </div>
-                      </button>
+                      <div key={item.id as any} className="relative">
+                        <button
+                          onClick={handleItemClick}
+                          className="w-full flex items-center gap-3 p-3 bg-zinc-50 rounded-xl hover:bg-zinc-100 transition-colors text-left group"
+                        >
+                          <div className="size-16 rounded-xl overflow-hidden shrink-0 bg-zinc-50 relative border border-zinc-100">
+                            <Image src={(item.images as any)?.[0] ?? '/images/logo.png'} alt={(item.name as any) || 'Item'} fill className="object-cover group-hover:scale-105 transition-transform duration-500" sizes="64px" />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-bold text-zinc-900 truncate">{item.name as any}</p>
+                            <p className="text-xs text-zinc-500 font-medium">{(item.partner_name || 'Store')} · ₹{item.base_price}</p>
+                            <div className="mt-1 flex gap-1">
+                              {item.has_personalization && <span className="text-[8px] font-black uppercase tracking-widest text-[#D91B24] bg-rose-50 px-1.5 py-0.5 rounded border border-rose-100">Identity</span>}
+                            </div>
+                          </div>
+                          <button
+                            onClick={handleDirectAdd}
+                            className="h-8 px-4 bg-white border border-zinc-200 rounded-lg text-xs font-black text-emerald-600 shadow-sm hover:border-emerald-200 active:scale-95 transition-all"
+                          >
+                            ADD+
+                          </button>
+                        </button>
+                      </div>
                     );
                   })}
                 </div>
@@ -282,6 +300,18 @@ export function SearchPageClient({ searchParams, initialResults }: SearchPageCli
           </div>
         )}
       </div>
+
+      {/* WYSHKIT 2026: Quick-Spec Overlay (Zero-Bounce Interaction) */}
+      <Sheet open={isSheetOpen} onOpenChange={setIsSheetOpen}>
+        <SheetContent side="bottom" className="p-0 h-[85dvh] rounded-t-[32px] border-none overflow-hidden outline-none">
+          {selectedItem && (
+            <ItemDetailView
+              item={selectedItem as any}
+              onBack={() => setIsSheetOpen(false)}
+            />
+          )}
+        </SheetContent>
+      </Sheet>
     </div>
   );
 }

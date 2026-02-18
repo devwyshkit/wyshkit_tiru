@@ -32,11 +32,15 @@ export function AddressSlot({ initialAddresses, currentAddress }: AddressSlotPro
     }
   }, [addressState.committed, addressState.address?.id, setSelectedAddressId]);
 
-  const handleCommit = (addr: Address | null) => {
+  const handleCommit = async (addr: Address | null) => {
     setLocalAddressState({ address: addr ?? null, committed: !!addr });
     if (addr) {
       setSelectedAddressId?.(addr.id);
       setIsExpanded(false);
+
+      // WYSHKIT 2026: Persistent stateless selection
+      const { setSelectedAddressAction } = await import("@/lib/actions/checkout");
+      await setSelectedAddressAction(addr.id);
     }
   };
 

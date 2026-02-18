@@ -1,6 +1,6 @@
 'use client';
 
-import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
+import React, { createContext, useContext, useEffect, useRef, useState, useMemo } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import type { RealtimeChannel } from '@supabase/supabase-js';
 import { useAuth } from '@/hooks/useAuth';
@@ -27,7 +27,7 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
     const { user, loading: authLoading } = useAuth();
     const [channel, setChannel] = useState<RealtimeChannel | null>(null);
     const [isConnected, setIsConnected] = useState(false);
-    const supabase = createClient();
+    const supabase = useMemo(() => createClient(), []);
 
     useEffect(() => {
         if (authLoading || !user) {

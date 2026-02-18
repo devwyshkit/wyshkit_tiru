@@ -38,6 +38,7 @@ export async function getItems(options: {
       .select('id, name, base_price, images, partner_id, category, slug, mrp, partners(name, slug)')
       .eq('is_active', true)
       .eq('approval_status', 'approved')
+      .neq('stock_status', 'out_of_stock')
       .order('created_at', { ascending: false })
       .range(offset, offset + limit - 1);
 
@@ -78,6 +79,7 @@ export async function getFilteredItems(options: {
       .select('id, name, base_price, images, partner_id, category, slug, mrp, partners(name, slug)', { count: 'exact' })
       .eq('is_active', true)
       .eq('approval_status', 'approved')
+      .neq('stock_status', 'out_of_stock')
       .order('created_at', { ascending: false });
 
     if (category) {
