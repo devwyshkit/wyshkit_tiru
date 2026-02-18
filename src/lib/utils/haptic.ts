@@ -21,6 +21,9 @@ export const HapticPattern = {
 
   /** Warning pattern: Medium vibration (100ms) */
   WARNING: 100 as const,
+
+  /** Heartbeat pattern: Triple pulse (60ms, 40ms, 60ms, 40ms, 100ms) */
+  HEARTBEAT: [60, 40, 60, 40, 100] as const,
 } as const;
 
 /**

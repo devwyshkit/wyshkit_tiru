@@ -13,7 +13,7 @@ import { toast } from "sonner";
 import { useEffect } from "react";
 import { useCart } from "@/components/customer/CartProvider";
 import { Button } from "@/components/ui/button";
-import { ShoppingBag, RefreshCw, MapPin } from "lucide-react";
+import { ShoppingBag, RefreshCw, MapPin, Sparkles } from "lucide-react";
 import { CartSlot } from "./slots/CartSlot";
 import { AddressSlot } from "./slots/AddressSlot";
 import { createClient } from "@/lib/supabase/client";
@@ -704,27 +704,44 @@ function CheckoutLayoutClientInner({
 
       {/* WYSHKIT 2026: Proactive Success Intercept */}
       {(isSuccess || uploadOrder) && (
-        <div className="fixed inset-0 z-[100] bg-white flex flex-col items-center justify-start overflow-y-auto px-6 py-12">
+        <div className="fixed inset-0 z-[100] bg-white flex flex-col items-center justify-start overflow-y-auto px-6 py-12 scrollbar-none">
           <Confetti />
 
-          <div className="w-full max-w-lg mx-auto space-y-8 animate-in cubic-bezier(0.19, 1, 0.22, 1) slide-in-from-bottom-12 duration-1000">
-            <div className="text-center space-y-4">
-              <div className="size-24 bg-zinc-900 rounded-[32px] flex items-center justify-center mx-auto shadow-2xl shadow-zinc-200">
-                <Check className="size-10 text-white" />
+          <div className="w-full max-w-lg mx-auto space-y-12 animate-in cubic-bezier(0.19, 1, 0.22, 1) slide-in-from-bottom-12 duration-1000">
+            <div className="text-center space-y-6">
+              <div
+                className="size-28 bg-zinc-950 rounded-[40px] flex items-center justify-center mx-auto shadow-2xl shadow-zinc-200 animate-in zoom-in-50 duration-700 ease-out"
+                onAnimationEnd={() => triggerHaptic(HapticPattern.HEARTBEAT)}
+              >
+                <Check className="size-12 text-white stroke-[3px]" />
               </div>
-              <div className="space-y-1">
-                <h2 className="text-3xl font-black text-zinc-950 tracking-tighter uppercase">Payment Successful</h2>
-                <p className="text-[11px] font-bold text-zinc-400 uppercase tracking-widest">Order #{uploadOrder?.order_number || data.partnerName}</p>
+              <div className="space-y-2">
+                <h2 className="text-4xl font-black text-zinc-950 tracking-tighter uppercase italic leading-none">
+                  Order <span className="text-[#D91B24]">Received</span>
+                </h2>
+                <div className="flex items-center justify-center gap-2">
+                  <span className="text-[10px] font-black text-zinc-400 uppercase tracking-widest bg-zinc-50 px-3 py-1 rounded-full border border-zinc-100">
+                    ID: #{uploadOrder?.order_number || data.partnerName}
+                  </span>
+                </div>
               </div>
             </div>
 
             {uploadOrder ? (
-              <div className="bg-white rounded-[40px] border border-zinc-100 p-1 shadow-sm">
-                <div className="p-6 space-y-2 border-b border-zinc-50">
-                  <h3 className="text-xl font-black text-zinc-900 tracking-tighter uppercase">Almost there!</h3>
-                  <p className="text-sm text-zinc-500 font-medium">Please provide the remaining details for your personalization.</p>
+              <div className="bg-white rounded-[40px] border border-zinc-100 p-1 shadow-2xl shadow-zinc-200/50 animate-in zoom-in-95 duration-500 delay-300 fill-mode-backwards">
+                <div className="p-8 space-y-3 border-b border-zinc-50 bg-[#FFF9E6]/30 rounded-t-[38px] relative overflow-hidden">
+                  <div className="absolute top-0 right-0 p-4 opacity-[0.05] pointer-events-none">
+                    <Sparkles className="size-16 text-amber-500" />
+                  </div>
+                  <div className="flex items-center gap-2 relative z-10">
+                    <div className="size-2 bg-amber-500 rounded-full animate-pulse shadow-[0_0_8px_rgba(245,158,11,0.5)]" />
+                    <h3 className="text-xl font-black text-zinc-900 tracking-tighter uppercase leading-none">Complete Design</h3>
+                  </div>
+                  <p className="text-sm text-zinc-500 font-medium leading-relaxed relative z-10 max-w-[280px]">
+                    Crafting starts as soon as you share your identity brief.
+                  </p>
                 </div>
-                <div className="p-6">
+                <div className="p-8">
                   <IdentityForm
                     order={uploadOrder}
                     onSubmitted={() => {
@@ -742,21 +759,31 @@ function CheckoutLayoutClientInner({
                 </div>
               </div>
             ) : (
-              <div className="text-center py-12 space-y-6">
-                <div className="p-6 bg-emerald-50 rounded-3xl border border-emerald-100 animate-pulse">
-                  <p className="text-sm font-bold text-emerald-600">Securely redirecting to your tracker...</p>
+              <div className="text-center py-12 space-y-8 animate-in fade-in zoom-in-95 duration-700">
+                <div className="space-y-4">
+                  <div className="relative inline-flex flex-col items-center">
+                    <div className="p-8 bg-emerald-50 rounded-[32px] border border-emerald-100/50 shadow-sm relative overflow-hidden">
+                      <div className="absolute inset-0 bg-gradient-to-tr from-emerald-100/20 to-transparent animate-pulse" />
+                      <p className="text-sm font-black text-emerald-700 uppercase tracking-tight relative z-10">Syncing with Partner</p>
+                    </div>
+                  </div>
+                  <p className="text-[10px] font-black text-zinc-300 uppercase tracking-[0.2em]">Preparing your tracker...</p>
                 </div>
 
-                <div className="h-1 bg-zinc-100 rounded-full overflow-hidden w-40 mx-auto">
-                  <div className="h-full bg-zinc-900 animate-[loading-bar_2s_ease-in-out_infinite]" />
+                <div className="h-1 bg-zinc-50 rounded-full overflow-hidden w-48 mx-auto border border-zinc-100/50 shadow-inner">
+                  <div className="h-full bg-zinc-950 animate-[loading-bar_1.5s_cubic-bezier(0.65,0,0.35,1)_infinite]" />
                 </div>
 
-                <button
-                  onClick={() => window.location.href = `/orders/${data.items[0]?.orderId || ''}`}
-                  className="text-[10px] font-bold text-zinc-400 hover:text-zinc-600 underline underline-offset-4 decoration-zinc-300 uppercase tracking-widest"
-                >
-                  Click here if you are not redirected
-                </button>
+                <div className="pt-4">
+                  <button
+                    onClick={() => {
+                      if (uploadOrder?.id) window.location.href = `/orders/${uploadOrder.id}`;
+                    }}
+                    className="text-[10px] font-black text-zinc-400 hover:text-zinc-600 underline underline-offset-8 decoration-zinc-200 uppercase tracking-[0.15em] transition-all"
+                  >
+                    Skip to Tracker
+                  </button>
+                </div>
               </div>
             )}
           </div>

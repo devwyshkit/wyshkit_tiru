@@ -2,8 +2,9 @@
 
 import React, { useMemo } from 'react';
 import Image from 'next/image';
-import { Star, Sparkles, Flame } from 'lucide-react';
+import { Star, Sparkles, Flame, Clock } from 'lucide-react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { cn } from '@/lib/utils';
 import { AddToCartButton } from './AddToCartButton';
 import { useCart } from '@/components/customer/CartProvider';
@@ -32,6 +33,7 @@ export function ItemCard({
   partnerId,
   priority = false,
 }: ItemCardProps) {
+  const router = useRouter();
   const { draftOrder } = useCart();
 
   const {
@@ -223,18 +225,34 @@ export function ItemCard({
     </>
   );
 
+  const handleNavigation = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    // WYSHKIT 2026: Momentum Haptic
+    triggerHaptic(HapticPattern.ACTION);
+
+    if (itemPartnerId) {
+      // Swiggy 2026: Portal Navigation
+      // 1. Silently establishment store context in the background
+      // 2. Open item detail in the foreground
+      // This ensures that closing the modal lands the user on the Store Page.
+      router.push(`/partner/${itemPartnerId}`, { scroll: false });
+      router.push(`/partner/${itemPartnerId}/item/${id}`, { scroll: false });
+    } else {
+      router.push(`/search?q=${encodeURIComponent(name)}`);
+    }
+  };
+
   return (
-    <Link
-      href={href}
-      className={cardClassName}
-      prefetch={true}
-      scroll={false}
-      onClick={() => {
-        // WYSHKIT 2026: Momentum Haptic
-        triggerHaptic(HapticPattern.ACTION);
-      }}
+    <div
+      role="link"
+      tabIndex={0}
+      onClick={handleNavigation}
+      onKeyDown={(e) => e.key === 'Enter' && handleNavigation(e as any)}
+      className={cn("cursor-pointer", cardClassName)}
     >
       {cardContent}
-    </Link>
+    </div>
   );
 }

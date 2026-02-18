@@ -48,11 +48,15 @@ export function PopularNearYouRail({ items }: PopularNearYouRailProps) {
                     className="w-full"
                 >
                     <CarouselContent className="-ml-2 md:-ml-4">
-                        {items.map((item) => (
-                            <CarouselItem key={item.id} className="pl-2 md:pl-4 basis-[160px] md:basis-[240px]">
+                        {items.map((item, index) => (
+                            <CarouselItem
+                                key={item.id}
+                                className="pl-2 md:pl-4 basis-[160px] md:basis-[240px] animate-in slide-in-from-bottom-8 duration-700 fill-mode-backwards"
+                                style={{ animationDelay: `${index * 80}ms` }}
+                            >
                                 <ItemCard
                                     item={item}
-                                    className="bg-card border-border/50 shadow-sm"
+                                    className="bg-card border-border/50 shadow-sm hover:shadow-xl hover:shadow-zinc-200/50 transition-all duration-500"
                                     variant="default"
                                 />
                             </CarouselItem>
