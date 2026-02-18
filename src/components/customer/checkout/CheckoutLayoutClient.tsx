@@ -28,6 +28,7 @@ import { CouponSlot } from "./slots/CouponSlot";
 import { WalletSlot } from "./slots/WalletSlot";
 import { CheckoutAddressProvider, useCheckoutAddress } from "./CheckoutAddressContext";
 import { generateEstimatePDF } from "@/lib/services/pdf-service";
+import { IdentityForm } from "@/components/customer/orders/IdentityForm";
 import { getPartnerInfo } from "@/lib/actions/draft-order";
 import { validateGSTINAction } from "@/lib/actions/gstin";
 // SuccessOverlay removed as per Swiggy 2026 single-screen model
@@ -144,9 +145,6 @@ function CheckoutLayoutClientInner({
 
     toast.success("Estimate downloaded");
   };
-
-
-  import { IdentityForm } from "@/components/customer/orders/IdentityForm";
 
   const handleOrderSuccess = useCallback(async (order: any, orderId?: string, hasPersonalization?: boolean) => {
     if (successRef.current) return;
