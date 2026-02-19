@@ -169,10 +169,8 @@ export function CartProvider({
             setLoading(false);
             return cart;
         } catch (error) {
-            logger.error('Failed to fetch cart', error as Error);
             if (retries < maxRetries) {
                 const delay = baseDelay * Math.pow(2, retries) + Math.random() * 1000;
-                logger.warn(`Retrying cart hydration in ${delay}ms...`);
                 await new Promise(resolve => setTimeout(resolve, delay));
                 return fetchDraftOrder(retries + 1);
             }

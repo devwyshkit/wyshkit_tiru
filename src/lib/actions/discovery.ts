@@ -3,7 +3,7 @@
 import { createClient } from '@/lib/supabase/server';
 import { logger } from '@/lib/logging/logger';
 import { logError } from '@/lib/utils/error-handler';
-import { DBPartner, DBItem } from '@/lib/supabase/types';
+import { DBPartner, DBItem, ItemWithFullSpec } from '@/lib/supabase/types';
 import { Database } from '@/lib/supabase/database.types';
 import { MappedPartner } from '@/lib/types/partner';
 
@@ -320,19 +320,11 @@ export async function getPartnerStoreData(partnerId: string, includeInactive = f
         let itemsQuery = supabase
           .from('items')
           .select(`
-            id,
-            name,
-            description,
-            base_price,
-            images,
-            category,
-            is_active,
-            approval_status,
-            partner_id,
-            has_personalization,
+            *,
+            partners:partners(id, name, slug, city, rating, display_name, image_url, fssai_license, gstin),
             personalization_options(*),
-            production_time_minutes,
-            variants(id, name, price, stock_quantity)
+            item_addons(*),
+            variants(*)
           `)
           .eq('partner_id', partnerId)
           .eq('approval_status', 'approved')
@@ -373,7 +365,7 @@ export async function getPartnerStoreData(partnerId: string, includeInactive = f
 
     return {
       partner,
-      items,
+      items: items as ItemWithFullSpec[],
       error: null
     };
   } catch (error) {

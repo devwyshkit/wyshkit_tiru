@@ -16,6 +16,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { cn } from '@/lib/utils';
 import { useEffect, useMemo } from 'react';
 import { InterceptedItemSheet } from '@/components/customer/item/InterceptedItemSheet';
+import { formatPrepTime } from '@/lib/utils/sla-format';
 
 const FALLBACK_IMAGE = '/images/logo.png';
 
@@ -64,9 +65,7 @@ export function PartnerStorePage({ partnerId, initialData, initialItems }: Partn
   const displayRating = partner?.rating;
   const displayCity = partner?.city || 'Local Partner';
   const displayPrepHours = initialData?.prepHours || 0.75;
-  const prepTimeText = displayPrepHours < 1
-    ? `${Math.round(displayPrepHours * 60)}m`
-    : `${displayPrepHours}h`;
+  const prepTimeText = formatPrepTime(displayPrepHours);
   const displayDeliveryFee = initialData?.deliveryFee ?? 0;
   const displayDescription = partner?.description || 'Discover quality items from this local partner.';
 

@@ -5,6 +5,7 @@
  */
 
 import { NextResponse } from 'next/server';
+import { logger } from "@/lib/logging/logger";
 
 /**
  * Extract error message from unknown error type

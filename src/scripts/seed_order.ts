@@ -17,16 +17,12 @@ if (!supabaseUrl || !supabaseServiceKey) {
 const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
 async function seedOrder() {
-    console.log('Seeding Personalization Order...');
-
     // 1. Get User
     const { data: { users }, error: userError } = await supabase.auth.admin.listUsers();
     if (userError || !users || users.length === 0) {
-        console.error('No users found.');
         return;
     }
     const userId = users[0].id;
-    console.log(`User: ${userId}`);
 
     // 2. Get Partner
     const { data: partners, error: partnerError } = await supabase
@@ -35,11 +31,9 @@ async function seedOrder() {
         .limit(1);
 
     if (partnerError || !partners || partners.length === 0) {
-        console.error('No partners found.');
         return;
     }
     const partnerId = partners[0].id;
-    console.log(`Partner: ${partnerId}`);
 
     // 3. Insert Order
     const { data, error } = await supabase
@@ -74,13 +68,6 @@ async function seedOrder() {
         })
         .select()
         .single();
-
-    if (error) {
-        console.error('Error seeding order:', error);
-    } else {
-        console.log('Successfully seeded order:', data.id);
-        console.log(`URL: http://localhost:3000/orders/${data.id}`);
-    }
 }
 
 seedOrder();

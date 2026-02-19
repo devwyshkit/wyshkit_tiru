@@ -55,7 +55,8 @@ export function AddToCartButton({
         if (isIdentityAvailable || hasVariants) {
             if (partnerId) {
                 // Swiggy Pattern: Portal Navigation
-                // Parallel routes handle background automatically.
+                // Redirect user to the item detail sheet to make selections
+                router.push(`/partner/${partnerId}/item/${itemId}${pathname === '/search' ? '?context=search' : ''}`, { scroll: false });
             }
             return;
         }

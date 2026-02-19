@@ -1,5 +1,5 @@
-
-import { Flame, Sparkles, Clock, LucideIcon } from 'lucide-react';
+import { Flame, Sparkles, Clock } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 import React from 'react';
 
 /**
