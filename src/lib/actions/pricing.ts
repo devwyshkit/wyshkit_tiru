@@ -19,12 +19,12 @@ import { logger } from '@/lib/logging/logger';
  */
 export async function calculateOrderTotalRPC(
   cartItems: Array<{
-    itemId: string;
+    item_id: string;
     quantity: number;
-    variantId?: string | null;
-    personalizationOptionId?: string | null;
-    hasPersonalization?: boolean;
-    selectedAddons?: any[];
+    variant_id?: string | null;
+    personalization_option_id?: string | null;
+    has_personalization?: boolean;
+    selected_addons?: any[];
   }>,
   deliveryFeeOverride: number = PRICING.DELIVERY_FEE_3KM,
   addressId?: string | null,
@@ -43,12 +43,12 @@ export async function calculateOrderTotalRPC(
     // Call Postgres RPC with standardized Swiggy 2026 parameters
     const { data, error } = await supabase.rpc('calculate_order_total', {
       p_cart_items: cartItems.map(item => ({
-        itemId: item.itemId,
+        item_id: item.item_id,
         quantity: item.quantity,
-        variantId: item.variantId ?? null,
-        personalizationOptionId: item.personalizationOptionId ?? null,
-        hasPersonalization: item.hasPersonalization ?? false,
-        selectedAddons: item.selectedAddons ?? []
+        variant_id: item.variant_id ?? null,
+        personalization_option_id: item.personalization_option_id ?? null,
+        has_personalization: item.has_personalization ?? false,
+        selected_addons: item.selected_addons ?? []
       })) as unknown as Json,
       p_delivery_fee_override: finalDeliveryFee,
       p_address_id: addressId || undefined,

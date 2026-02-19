@@ -147,8 +147,8 @@ export async function getCart(): Promise<GetCartResult> {
     // Map DB items to frontend MappedCartItem objects
     const items: DraftLineItem[] = (itemRows as any[] || []).map(row => {
       const itemBasePrice = Number(row?.items?.base_price || 0);
-      const variantPrice = Number(row?.variants?.price || 0);
-      const unitPrice = variantPrice || itemBasePrice;
+      const variantPrice = row?.variants?.price != null ? Number(row.variants.price) : null;
+      const unitPrice = variantPrice !== null ? variantPrice : itemBasePrice;
       const quantity = Number(row.quantity) || 1;
 
       // Extract Addons Price
@@ -685,11 +685,11 @@ export async function getGuestCartDetails(payload: Array<{ itemId: string; quant
     // (Actual placement happens in place_secure_order RPC)
     const { data: pricing, error: pricingError } = await (supabase as any).rpc('calculate_order_total', {
       p_cart_items: items.map(it => ({
-        itemId: it.itemId,
+        item_id: it.itemId,
         quantity: it.quantity,
-        variantId: it.selectedVariantId,
-        hasPersonalization: !!it.personalization?.enabled,
-        selectedAddons: it.selectedAddons
+        variant_id: it.selectedVariantId,
+        has_personalization: !!it.personalization?.enabled,
+        selected_addons: it.selectedAddons
       })),
       p_delivery_fee_override: 40,
       p_distance_km: null,

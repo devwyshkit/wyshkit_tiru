@@ -51,11 +51,11 @@ export interface DraftLineItem {
   partnerLatitude?: number | null;
   partnerLongitude?: number | null;
   // WYSHKIT 2026: Hydration fields for Checkout
-  basePrice?: number;
-  variantPrice?: number;
+  basePrice?: number | null;
+  variantPrice?: number | null;
   variantName?: string;
-  personalizationPrice?: number;
-  addonsPrice?: number;
+  personalizationPrice?: number | null;
+  addonsPrice?: number | null;
   // WYSHKIT 2026: Metadata for hasItemPersonalization and IdentityForm
   personalization_options?: any[];
   item_addons?: any[];

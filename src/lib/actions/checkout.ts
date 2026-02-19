@@ -94,12 +94,12 @@ export const getCheckoutData = cache(async (): Promise<CheckoutData> => {
         })) as unknown as HydratedDraftItem[];
 
         const pricingItems = hydratedItems.map(item => ({
-            itemId: item.itemId,
+            item_id: item.itemId,
             quantity: item.quantity,
-            variantId: (item as any).variantId, // Keep original variantId from item
-            personalizationOptionId: (item as any).personalization?.optionId || null,
-            hasPersonalization: hasItemPersonalization(item),
-            selectedAddons: (item as any).selectedAddons || []
+            variant_id: item.variantId,
+            personalization_option_id: (item as any).personalization?.optionId || null,
+            has_personalization: hasItemPersonalization(item),
+            selected_addons: (item as any).selectedAddons || []
         }))
 
         // WYSHKIT 2026: Prioritize the manually selected address from cookie
