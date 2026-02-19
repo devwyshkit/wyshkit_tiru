@@ -1,22 +1,16 @@
 'use client';
 
+import { WyshkitItem } from '@/lib/types/item';
+
 import Link from 'next/link';
 import Image from 'next/image';
 import { useMemo, useState, useEffect } from 'react';
 import { Sparkles, TrendingUp } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
-interface FeaturedItem {
-  id: string;
-  name: string;
-  base_price: number;
-  images: string[] | null;
-  partner_id?: string | null;
-  partner_name?: string;
-}
 
 interface QuickAccessCardProps {
-  item: FeaturedItem;
+  item: WyshkitItem;
   variant?: 'default' | 'large';
 }
 
@@ -80,7 +74,7 @@ function SkeletonCard({ variant = 'default' }: { variant?: 'default' | 'large' }
 }
 
 interface BentoBannerProps {
-  items: FeaturedItem[];
+  items: WyshkitItem[];
 }
 
 /**

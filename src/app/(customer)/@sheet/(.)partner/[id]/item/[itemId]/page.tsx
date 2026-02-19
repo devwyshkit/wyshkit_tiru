@@ -1,6 +1,7 @@
 import { Suspense } from 'react';
 import { notFound } from 'next/navigation';
 import { InterceptedItemSheet } from '@/components/customer/item/InterceptedItemSheet';
+import { WyshkitItem } from '@/lib/types/item';
 import { getPartnerStoreData } from '@/lib/actions/discovery';
 
 /**
@@ -28,7 +29,7 @@ export default async function InterceptedItemPage({
 
     return (
         <InterceptedItemSheet
-            item={item}
+            item={item as WyshkitItem}
             onCloseOverride={`/partner/${id}`}
         />
     );

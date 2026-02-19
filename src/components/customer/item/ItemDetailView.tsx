@@ -13,10 +13,10 @@ import { formatCurrency } from '@/lib/utils/pricing';
 
 const FALLBACK_IMAGE = '/images/logo.png';
 
-import { ItemWithFullSpec } from '@/lib/supabase/types';
+import { WyshkitItem } from '@/lib/types/item';
 
 interface ItemDetailViewProps {
-    item: ItemWithFullSpec;
+    item: WyshkitItem;
     onBack?: () => void;
     /** When in sheet from partner page, pass for optional View cart CTA. */
     partnerId?: string;

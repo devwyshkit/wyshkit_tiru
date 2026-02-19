@@ -7,6 +7,7 @@ import { getServerLocation } from "@/lib/actions/location";
 import { HomeSkeleton } from "@/components/customer/home/HomeSkeleton";
 import { CategoryRail } from "@/components/customer/home/CategoryRail";
 import { BentoBanner } from "@/components/customer/home/BentoBanner";
+import { WyshkitItem } from '@/lib/types/item';
 import { HeroCarousel } from "@/components/customer/home/HeroCarousel";
 import { DiscoveryItemsGrid } from "@/components/customer/home/DiscoveryItemsGrid";
 import { PopularNearYouRail } from "@/components/customer/home/PopularNearYouRail";
@@ -110,17 +111,10 @@ async function AsyncCategoryRail({ category }: { category: string | null }) {
 async function AsyncBentoBanner({ category }: { category: string | null }) {
   if (category) return null;
   const location = await getServerLocation();
-  let items: { id: string; name: string; base_price: number; images: string[] | null; partner_id: string | null; partner_name?: string }[] = [];
+  let items: WyshkitItem[] = [];
   if (location.lat != null && location.lng != null) {
     const discovery = await getHomeDiscovery(location.lat, location.lng);
-    items = (discovery.trendingItems || []).slice(0, 3).map((t) => ({
-      id: t.id,
-      name: t.name,
-      base_price: t.base_price,
-      images: t.images ?? null,
-      partner_id: t.partner_id ?? null,
-      partner_name: t.partner_name,
-    }));
+    items = (discovery.trendingItems || []).slice(0, 3);
   }
   if (items.length === 0) {
     const featuredRes = await getFeaturedItems(3);

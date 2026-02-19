@@ -3,9 +3,9 @@
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Sheet, SheetContent, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { ItemDetailView } from '@/components/customer/item/ItemDetailView';
-import { ItemWithFullSpec } from '@/lib/supabase/types';
+import { WyshkitItem } from '@/lib/types/item';
 interface InterceptedItemSheetProps {
-    item: ItemWithFullSpec;
+    item: WyshkitItem;
     onCloseOverride?: string;
 }
 

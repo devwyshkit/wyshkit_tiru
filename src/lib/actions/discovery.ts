@@ -3,9 +3,10 @@
 import { createClient } from '@/lib/supabase/server';
 import { logger } from '@/lib/logging/logger';
 import { logError } from '@/lib/utils/error-handler';
-import { DBPartner, DBItem, ItemWithFullSpec } from '@/lib/supabase/types';
+import { DBPartner, DBItem, ItemWithFullSpec, Tables } from '@/lib/supabase/types';
 import { Database } from '@/lib/supabase/database.types';
 import { MappedPartner } from '@/lib/types/partner';
+import { WyshkitItem } from '@/lib/types/item';
 
 // Define explicit types for Tables and Queries
 interface TrendingItemView {
@@ -200,15 +201,15 @@ export async function getHomeDiscovery(lat?: number, lng?: number) {
 
 export async function getCategories() {
   const supabase = await createClient();
-  const { data } = await (supabase as any)
+  const { data } = await supabase
     .from('categories')
     .select('id, name, slug, image_url')
     .eq('is_active', true)
     .order('display_order');
-  return data || [];
+  return (data || []) as Tables<'categories'>[];
 }
 
-export async function getTrendingItems() {
+export async function getTrendingItems(): Promise<WyshkitItem[]> {
   const supabase = await createClient();
   // WYSHKIT 2026: Cast to any because v_trending_items is missing in types
   const { data } = await (supabase as any)
@@ -217,8 +218,7 @@ export async function getTrendingItems() {
     .neq('stock_status', 'out_of_stock') // WYSHKIT 2026: Zero Reflection
     .limit(15);
 
-  return ((data as any[] || [])
-    .map(mapTrendingItem));
+  return (data || []).map(mapTrendingItem) as unknown as WyshkitItem[];
 }
 
 export async function getFeaturedPartners(limit: number = 8) {
@@ -275,14 +275,14 @@ export async function getFeaturedItems(limit: number = 3) {
       return { items: [], error: error.message };
     }
 
-    const items = (data as unknown as ItemWithPartner[] || []).map((item) => ({
+    const items: WyshkitItem[] = (data as unknown as ItemWithPartner[] || []).map((item) => ({
       id: item.id,
       name: item.name,
       base_price: item.base_price || 0,
-      images: item.images,
+      images: item.images || [],
       partner_id: item.partner_id,
       partner_name: item.partners?.display_name || item.partners?.name,
-    }));
+    } as WyshkitItem));
 
     return { items, error: null };
   } catch (error) {
@@ -355,7 +355,8 @@ export async function getPartnerStoreData(partnerId: string, includeInactive = f
     }
 
     const partner = mapPartner(partnerData as unknown as DBRowPartner);
-    const items = (itemsData || []).sort((a: any, b: any) => {
+    const rawItems = (itemsData || []) as unknown as WyshkitItem[];
+    const items = rawItems.sort((a, b) => {
       const aOut = a.is_active === false || a.stock_status === 'out_of_stock' || (typeof a.stock_quantity === 'number' && a.stock_quantity <= 0);
       const bOut = b.is_active === false || b.stock_status === 'out_of_stock' || (typeof b.stock_quantity === 'number' && b.stock_quantity <= 0);
       if (aOut && !bOut) return 1;
@@ -365,7 +366,7 @@ export async function getPartnerStoreData(partnerId: string, includeInactive = f
 
     return {
       partner,
-      items: items as ItemWithFullSpec[],
+      items: items as WyshkitItem[],
       error: null
     };
   } catch (error) {

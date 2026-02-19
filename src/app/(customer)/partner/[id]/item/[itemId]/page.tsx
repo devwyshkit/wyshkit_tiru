@@ -2,6 +2,7 @@ import { getItemWithFullSpec } from '@/lib/actions/item-actions';
 import { getPartnerStoreData } from '@/lib/actions/discovery';
 import { PartnerStorePage } from '@/components/customer/PartnerStorePage';
 import { InterceptedItemSheet } from '@/components/customer/item/InterceptedItemSheet';
+import { WyshkitItem } from '@/lib/types/item';
 import { notFound } from 'next/navigation';
 
 export default async function ItemPage({
@@ -31,7 +32,7 @@ export default async function ItemPage({
         initialItems={partnerRes.items}
       />
       <InterceptedItemSheet
-        item={itemRes.data}
+        item={itemRes.data as WyshkitItem}
         onCloseOverride={`/partner/${id}`}
       />
     </div>

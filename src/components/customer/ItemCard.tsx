@@ -13,12 +13,12 @@ import { formatCurrency } from '@/lib/utils/pricing';
 import { hasItemPersonalization } from '@/lib/utils/personalization';
 import { getDeliverySLASignal, getStockSLASignal, calculateTravelTime } from '@/lib/utils/sla';
 
-import { ItemListItem } from '@/lib/types/item';
+import { ItemListItem, WyshkitItem } from '@/lib/types/item';
 
 const FALLBACK_IMAGE = '/images/logo.png';
 
 interface ItemCardProps {
-  item: any; // Relaxed for flexible store/search/home usage in Swiggy 2026 Shift
+  item: WyshkitItem;
   className?: string;
   variant?: 'default' | 'compact' | 'cart';
   partnerId?: string;
@@ -39,21 +39,24 @@ export function ItemCard({
   const {
     id,
     name,
+    partners,
+    images,
     base_price,
+    variants,
+    partner_name,
     mrp,
     rating,
-    images,
+    partner_id
   } = item;
 
   const isPersonalizable = hasItemPersonalization(item);
-  const displayPrice = item.price || base_price || 0;
+  const imageUrl = item.image_url || (images && images[0]) || FALLBACK_IMAGE;
+  const displayPrice = item.price || base_price;
   const displayMrp = mrp || 0;
-
-  const itemPartnerId = partnerId || item.partner_id || item.partners?.id;
-  const partnerName = item.partner_name || item.partners?.display_name || item.partners?.name || 'Local Store';
-  const imageUrl = (images && Array.isArray(images) && images[0]) || item.image_url || FALLBACK_IMAGE;
-  const stockQuantity = item.stock_quantity;
-  const hasVariants = (item.variants?.length ?? 0) > 0;
+  const partnerName = partner_name || partners?.display_name || partners?.name || 'Local store';
+  const itemPartnerId = partner_id || partnerId || partners?.id;
+  const stockQuantity = item.stock_quantity === null ? undefined : item.stock_quantity;
+  const hasVariants = (variants?.length ?? 0) > 0;
 
   const cartItems = draftOrder?.items || [];
   const isInCart = useMemo(() => {
@@ -81,7 +84,9 @@ export function ItemCard({
     let icon = <Clock className="size-3 text-zinc-500" />;
     if (item.category?.toLowerCase() === 'flowers' || item.category?.toLowerCase() === 'cakes') {
       icon = <Flame className="size-3 text-orange-500" />;
-    } else if (item.production_time_minutes <= 45) {
+    }
+    const productionTime = item.production_time_minutes || 0;
+    if (productionTime <= 45) {
       icon = <Sparkles className="size-3 text-emerald-500" />;
     }
 
