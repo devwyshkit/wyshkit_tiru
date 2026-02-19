@@ -358,14 +358,19 @@ export function ItemDetailView({ item, onBack, partnerId, initialState }: ItemDe
                             </div>
 
                             {/* Non-returnable warning */}
-                            {selectedPersonalizations.length > 0 && (
-                                <div className="flex items-center gap-3 p-4 bg-rose-50 border border-rose-100 rounded-2xl animate-in fade-in slide-in-from-top-2">
-                                    <AlertTriangle className="size-4 text-[var(--primary)] shrink-0" />
-                                    <p className="text-[10px] font-bold text-[var(--primary)] leading-tight uppercase tracking-wider">
-                                        Important: Identity-linked items are non-returnable and non-refundable.
-                                    </p>
+                            <div className={cn(
+                                "grid transition-all duration-300 ease-in-out",
+                                selectedPersonalizations.length > 0 ? "grid-rows-[1fr] opacity-100 mb-2" : "grid-rows-[0fr] opacity-0"
+                            )}>
+                                <div className="overflow-hidden">
+                                    <div className="flex items-center gap-3 p-4 bg-rose-50 border border-rose-100 rounded-2xl">
+                                        <AlertTriangle className="size-4 text-[var(--primary)] shrink-0" />
+                                        <p className="text-[10px] font-bold text-[var(--primary)] leading-tight uppercase tracking-wider">
+                                            Important: Identity-linked items are non-returnable and non-refundable.
+                                        </p>
+                                    </div>
                                 </div>
-                            )}
+                            </div>
 
                             <div className="space-y-3">
                                 {personalizationArray.map((p: any) => {
@@ -418,8 +423,13 @@ export function ItemDetailView({ item, onBack, partnerId, initialState }: ItemDe
                                             key={addon.id}
                                             onClick={() => {
                                                 const next = new Set(selectedAddonIds);
-                                                if (next.has(addon.id)) next.delete(addon.id);
-                                                else { next.add(addon.id); triggerHaptic(HapticPattern.ACTION); }
+                                                if (next.has(addon.id)) {
+                                                    next.delete(addon.id);
+                                                    triggerHaptic(HapticPattern.ACTION);
+                                                } else {
+                                                    next.add(addon.id);
+                                                    triggerHaptic(HapticPattern.SUCCESS);
+                                                }
                                                 setSelectedAddonIds(next);
                                             }}
                                             className={cn(
