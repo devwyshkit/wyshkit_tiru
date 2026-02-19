@@ -19,7 +19,7 @@ interface TrendingItemView {
   base_price?: never;
 }
 
-type ItemWithPartner = Pick<DBItem, 'id' | 'name' | 'base_price' | 'mrp' | 'images' | 'partner_id' | 'has_personalization'> & {
+type ItemWithPartner = Pick<DBItem, 'id' | 'name' | 'base_price' | 'mrp' | 'images' | 'partner_id' | 'has_personalization' | 'stock_status' | 'stock_quantity' | 'production_time_minutes'> & {
   partners: Pick<DBPartner, 'id' | 'name' | 'display_name'> | null;
   is_online?: boolean; // From join or view
   rating?: number; // From view or join
@@ -43,6 +43,8 @@ function mapTrendingItem(item: ItemWithPartner | TrendingItemView) {
       rating: 0,
       is_online: true,
       has_personalization: false,
+      stock_status: (viewItem as any).stock_status || 'in_stock',
+      stock_quantity: (viewItem as any).stock_quantity ?? 99,
     };
   }
 
@@ -59,6 +61,9 @@ function mapTrendingItem(item: ItemWithPartner | TrendingItemView) {
     rating: dbItem.rating || 0,
     is_online: dbItem.is_online ?? true,
     has_personalization: dbItem.has_personalization || false,
+    stock_status: dbItem.stock_status || 'in_stock',
+    stock_quantity: dbItem.stock_quantity ?? 99,
+    production_time_minutes: dbItem.production_time_minutes || 45,
   };
 }
 
@@ -118,8 +123,9 @@ export async function getNearbyDiscovery(lat: number, lng: number, radiusKm: num
     partner_id: item.partner_id,
     partner_name: item.businessName || item.partner_name,
     rating: item.rating,
-    is_online: (item as any).is_online,
-    has_personalization: (item as any).has_personalization,
+    is_online: item.is_online,
+    has_personalization: item.has_personalization,
+    production_time_minutes: item.production_time_minutes || 45,
     distance_km: item.distance_km
   }));
   return { items, error: null };
@@ -140,13 +146,6 @@ export async function getHomeDiscovery(lat?: number, lng?: number) {
       logError(catError, 'GetHomeDiscoveryCategories');
     }
 
-    const hour = new Date().getHours();
-    let timeContext = 'Fresh';
-
-    if (hour >= 5 && hour < 12) timeContext = 'Morning';
-    else if (hour >= 12 && hour < 17) timeContext = 'Daylight';
-    else if (hour >= 17 && hour < 21) timeContext = 'Evening';
-    else if (hour >= 21 || hour < 5) timeContext = 'Night';
 
     let trendingItems: any[] | undefined;
 
@@ -154,25 +153,30 @@ export async function getHomeDiscovery(lat?: number, lng?: number) {
       const { data: nearbyItems, error: nearbyError } = await (supabase as any).rpc('get_nearby_items', {
         user_lat: lat,
         user_lng: lng,
-        radius_km: 10
+        radius_km: 10,
+        include_out_of_stock: false // WYSHKIT 2026: Push to RPC if supported, fallback below
       });
 
       if (nearbyError) {
         logError(nearbyError, 'GetHomeDiscoveryNearby');
       } else if (nearbyItems && (nearbyItems as any[]).length > 0) {
-        trendingItems = (nearbyItems as any[]).map((item: any) => ({
-          id: item.item_id,
-          name: item.item_name,
-          base_price: item.base_price,
-          mrp: 0,
-          images: item.images,
-          partner_id: item.partner_id,
-          partner_name: item.partner_name,
-          has_personalization: item.has_personalization,
-          is_online: item.is_online,
-          rating: item.rating,
-          distance_km: item.distance_km,
-        }));
+        trendingItems = (nearbyItems as any[])
+          .map((item: any) => ({
+            id: item.item_id,
+            name: item.item_name,
+            base_price: item.base_price,
+            mrp: 0,
+            images: item.images,
+            partner_id: item.partner_id,
+            partner_name: item.partner_name,
+            has_personalization: item.has_personalization,
+            production_time_minutes: item.production_time_minutes || 45,
+            is_online: item.is_online,
+            rating: item.rating,
+            distance_km: item.distance_km,
+            stock_status: item.stock_status,
+            stock_quantity: item.stock_quantity
+          }));
       }
     }
 
@@ -183,7 +187,6 @@ export async function getHomeDiscovery(lat?: number, lng?: number) {
     return {
       categories: categories || [],
       trendingItems: trendingItems || [],
-      timeContext
     };
   } catch (error) {
     logError(error, 'GetHomeDiscovery');
@@ -191,7 +194,6 @@ export async function getHomeDiscovery(lat?: number, lng?: number) {
       categories: [],
       trendingItems: [],
       error: error instanceof Error ? error.message : 'Failed to fetch discovery data',
-      timeContext: 'Fresh'
     };
   }
 }
@@ -211,10 +213,12 @@ export async function getTrendingItems() {
   // WYSHKIT 2026: Cast to any because v_trending_items is missing in types
   const { data } = await (supabase as any)
     .from('v_trending_items')
-    .select('id, name, "basePrice", images, "partnerId", "businessName"')
+    .select('id, name, "basePrice", images, "partnerId", "businessName", stock_status')
+    .neq('stock_status', 'out_of_stock') // WYSHKIT 2026: Zero Reflection
     .limit(15);
 
-  return ((data as unknown as TrendingItemView[]) || []).map(mapTrendingItem);
+  return ((data as any[] || [])
+    .map(mapTrendingItem));
 }
 
 export async function getFeaturedPartners(limit: number = 8) {
@@ -257,6 +261,8 @@ export async function getFeaturedItems(limit: number = 3) {
         base_price,
         images,
         partner_id,
+        stock_status,
+        stock_quantity,
         partners:partners(name, display_name)
       `)
       .eq('is_active', true)
@@ -357,7 +363,13 @@ export async function getPartnerStoreData(partnerId: string, includeInactive = f
     }
 
     const partner = mapPartner(partnerData as unknown as DBRowPartner);
-    const items = itemsData || [];
+    const items = (itemsData || []).sort((a: any, b: any) => {
+      const aOut = a.is_active === false || a.stock_status === 'out_of_stock' || (typeof a.stock_quantity === 'number' && a.stock_quantity <= 0);
+      const bOut = b.is_active === false || b.stock_status === 'out_of_stock' || (typeof b.stock_quantity === 'number' && b.stock_quantity <= 0);
+      if (aOut && !bOut) return 1;
+      if (!aOut && bOut) return -1;
+      return 0;
+    });
 
     return {
       partner,

@@ -1,4 +1,6 @@
 import { Suspense } from 'react';
+import Link from 'next/link';
+import { createClient } from '@/lib/supabase/server';
 import { getFilteredItems } from "@/lib/actions/item-actions";
 import { getCategories, getFeaturedPartners, getFeaturedItems, getHomeDiscovery } from "@/lib/actions/discovery";
 import { getServerLocation } from "@/lib/actions/location";
@@ -12,7 +14,8 @@ import { PartnerCard } from "@/components/customer/PartnerCard";
 import { MappedPartner } from "@/lib/types/partner";
 import { Masthead } from "@/components/customer/home/Masthead";
 import { OccasionRail } from "@/components/customer/home/OccasionRail";
-import { ErrorBoundary } from "@/components/ErrorBoundary";
+import { ReorderWidget } from "@/components/customer/home/ReorderWidget";
+import { SurfaceErrorBoundaryWithRouter } from "@/components/error/SurfaceErrorBoundary";
 
 interface HomePageProps {
   searchParams: Promise<{ category?: string }>;
@@ -61,6 +64,15 @@ export default async function HomePage({ searchParams }: HomePageProps) {
           </Suspense>
         )}
 
+        {/* Reorder Widget - Personalized Persistence */}
+        {!category && (
+          <SurfaceErrorBoundaryWithRouter surfaceName="Recent Orders" className="min-h-0 py-0">
+            <Suspense fallback={null}>
+              <AsyncReorderWidget />
+            </Suspense>
+          </SurfaceErrorBoundaryWithRouter>
+        )}
+
         {/* Occasions Rail - Curated Entry Points */}
         {!category && (
           <OccasionRail />
@@ -75,11 +87,11 @@ export default async function HomePage({ searchParams }: HomePageProps) {
 
         {/* Discovery Grid - Intent-based products */}
         <div className="mt-4">
-          <ErrorBoundary fallback={<DiscoveryErrorFallback />}>
+          <SurfaceErrorBoundaryWithRouter surfaceName="Discover" fallback={<DiscoveryErrorFallback />}>
             <Suspense fallback={<HomeSkeleton />}>
               <AsyncDiscoveryGrid category={category} />
             </Suspense>
-          </ErrorBoundary>
+          </SurfaceErrorBoundaryWithRouter>
         </div>
       </main>
     </div>
@@ -140,7 +152,7 @@ async function AsyncFeaturedPartners({ category }: { category: string | null }) 
           <h2 className="text-xl md:text-2xl font-black text-zinc-950 uppercase tracking-tighter">Featured Stores</h2>
           <p className="text-[10px] font-black text-zinc-400 uppercase tracking-widest mt-2 px-1 border-l-2 border-[#D91B24]">Handpicked local partners</p>
         </div>
-        <button className="text-[10px] font-black text-zinc-400 uppercase tracking-widest hover:text-zinc-950 transition-colors">View All</button>
+        <Link href="/partners" className="text-[10px] font-black text-zinc-400 uppercase tracking-widest hover:text-zinc-950 transition-colors">View All</Link>
       </div>
 
       <div className="flex gap-4 md:gap-8 overflow-x-auto no-scrollbar -mx-4 px-4 pb-4 max-w-[1440px] mx-auto">
@@ -176,6 +188,11 @@ async function AsyncPopularNearYouRail() {
     partner_name: t.partner_name,
     has_personalization: t.has_personalization,
     rating: t.rating || 0,
+    stock_status: t.stock_status,
+    stock_quantity: t.stock_quantity,
+    is_promoted: t.is_promoted,
+    personalization_options: t.personalization_options,
+    distance_km: t.distance_km,
   }));
 
   if (items.length === 0) return null;
@@ -203,6 +220,7 @@ async function AsyncDiscoveryGrid({ category }: { category: string | null }) {
       partner_name: t.partner_name,
       has_personalization: t.has_personalization,
       partners: t.partner_name ? { name: t.partner_name } : null,
+      distance_km: t.distance_km,
     }));
   }
   if (initialItems.length === 0) {
@@ -256,4 +274,36 @@ function DiscoveryErrorFallback() {
       </div>
     </section>
   );
+}
+
+/**
+ * WYSHKIT 2026: Async Reorder Widget (Server Component)
+ * Feeds recent order data directly to the client widget.
+ */
+async function AsyncReorderWidget() {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+
+  if (!user) return null;
+
+  const { data: orders } = await supabase
+    .from('v_orders_detailed')
+    .select('id, order_number, items, total, created_at, partner_name')
+    .eq('user_id', user.id)
+    .in('status', ['DELIVERED', 'DISPATCHED', 'PACKED', 'APPROVED', 'IN_PRODUCTION'])
+    .order('created_at', { ascending: false })
+    .limit(3);
+
+  if (!orders || orders.length === 0) return null;
+
+  const mappedOrders = orders.map(d => ({
+    id: d.id || '',
+    orderNumber: d.order_number || '',
+    items: (d.items as any[]) || [],
+    total: Number(d.total) || 0,
+    createdAt: d.created_at || '',
+    partnerName: d.partner_name || ''
+  }));
+
+  return <ReorderWidget initialOrders={mappedOrders as any} />;
 }

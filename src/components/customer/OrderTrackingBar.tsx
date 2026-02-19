@@ -7,6 +7,7 @@ import { useCart } from '@/components/customer/CartProvider';
 import { ORDER_STATUS, getStatusConfig } from '@/lib/types/order-status';
 import { cn } from '@/lib/utils';
 import { triggerHaptic, HapticPattern } from '@/lib/utils/haptic';
+import { useEffect } from 'react';
 
 export function OrderTrackingBar() {
     const { activeOrders, loading } = useActiveOrders();
@@ -29,26 +30,44 @@ export function OrderTrackingBar() {
 
     const { draftOrder } = useCart();
 
-    // WYSHKIT 2026: Tracker takes priority over Cart Bar if an order is active.
-    if (loading || !orderToShow || isExcludedPage) return null;
+    const isVisible = !loading && orderToShow && !isExcludedPage;
+
+    useEffect(() => {
+        const root = document.documentElement;
+        if (isVisible) {
+            root.style.setProperty('--tracking-bar-height', '72px');
+        } else {
+            root.style.setProperty('--tracking-bar-height', '0px');
+        }
+    }, [isVisible]);
+
+    if (!isVisible) return null;
 
     const handleTrack = () => {
         triggerHaptic(HapticPattern.ACTION);
-        router.push(`/orders/${orderToShow.id}`);
+        const targetPath = `/orders/${orderToShow.id}`;
+        if (pathname === targetPath) {
+            // Already there, just a heartbeat
+            return;
+        }
+        router.push(targetPath);
     };
 
     const config = getStatusConfig(orderToShow);
     const isUrgent = needsAttention.length > 0;
 
     return (
-        <div className="fixed bottom-24 md:bottom-12 left-0 right-0 z-40 flex justify-center pointer-events-none px-4 animate-in slide-in-from-bottom-8 fade-in duration-500 ease-out">
+        <div
+            className="fixed left-0 right-0 z-40 flex justify-center pointer-events-none px-4 animate-in slide-in-from-bottom-8 fade-in duration-500 ease-out"
+            style={{ bottom: `calc(var(--bottom-nav-height, 0px) + 12px)` }}
+        >
             <button
                 onClick={handleTrack}
                 className={cn(
                     "pointer-events-auto min-w-[320px] max-w-sm transition-all duration-500 ease-out",
                     "rounded-[2.5rem] shadow-2xl overflow-hidden flex items-center p-1.5 gap-4 active:scale-[0.96]",
                     isUrgent
-                        ? "bg-[#D91B24] ring-4 ring-rose-500/20 shadow-rose-900/40"
+                        ? "bg-[var(--primary)] ring-4 ring-rose-500/20 shadow-rose-900/40"
                         : "bg-zinc-950/95 backdrop-blur-2xl shadow-zinc-950/60 border border-white/5"
                 )}
             >
@@ -62,7 +81,7 @@ export function OrderTrackingBar() {
                     )}
                     <div className={cn(
                         "relative z-10",
-                        isUrgent ? "text-[#D91B24]" : ""
+                        isUrgent ? "text-[var(--primary)]" : ""
                     )}>
                         {isUrgent ? <AlertCircle className="size-6" /> : config.icon}
                     </div>

@@ -11,12 +11,15 @@ interface SubmittedIdentityProps {
         addons?: string[];
     };
     itemName?: string;
+    isOptimisticSubmitted?: boolean;
 }
 
-export function SubmittedIdentity({ details, itemName }: SubmittedIdentityProps) {
+export function SubmittedIdentity({ details, itemName, isOptimisticSubmitted }: SubmittedIdentityProps) {
     const [isExpanded, setIsExpanded] = useState(false);
 
-    if (!details.text && !details.image_url && (!details.addons || details.addons.length === 0)) {
+    const hasContent = details.text || details.image_url || (details.addons && details.addons.length > 0);
+
+    if (!hasContent && !isOptimisticSubmitted) {
         return null;
     }
 
@@ -31,9 +34,11 @@ export function SubmittedIdentity({ details, itemName }: SubmittedIdentityProps)
                         <FileText className="size-4 text-zinc-400" />
                     </div>
                     <div>
-                        <p className="text-[10px] font-black text-zinc-400 uppercase tracking-widest">Submitted Identity</p>
+                        <p className="text-[10px] font-black text-zinc-400 uppercase tracking-widest">
+                            {isOptimisticSubmitted && !hasContent ? 'Brief Processing...' : 'Submitted Identity'}
+                        </p>
                         <p className="text-xs font-bold text-zinc-900 truncate max-w-[150px]">
-                            {itemName || 'View your details'}
+                            {itemName || (isOptimisticSubmitted ? 'Sharing Vision...' : 'View your details')}
                         </p>
                     </div>
                 </div>

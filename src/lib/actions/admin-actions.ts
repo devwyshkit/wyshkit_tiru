@@ -8,7 +8,7 @@ import type { DiscountType } from '@/lib/types/admin.types'
 // Partner actions
 export async function approvePartnerKYC(partnerId: string) {
   await requireAdmin()
-  const supabase = await createClient() as any
+  const supabase = await createClient()
 
   const { error } = await supabase
     .from('partners')
@@ -21,7 +21,7 @@ export async function approvePartnerKYC(partnerId: string) {
 
 export async function rejectPartnerKYC(partnerId: string, reason: string) {
   await requireAdmin()
-  const supabase = await createClient() as any
+  const supabase = await createClient()
 
   const { error } = await supabase
     .from('partners')
@@ -34,7 +34,7 @@ export async function rejectPartnerKYC(partnerId: string, reason: string) {
 
 export async function togglePartnerStatus(partnerId: string, isActive: boolean) {
   await requireAdmin()
-  const supabase = await createClient() as any
+  const supabase = await createClient()
 
   const { error } = await supabase
     .from('partners')
@@ -47,11 +47,11 @@ export async function togglePartnerStatus(partnerId: string, isActive: boolean) 
 
 export async function updatePartnerCommission(partnerId: string, rate: number) {
   await requireAdmin()
-  const supabase = await createClient() as any
+  const supabase = await createClient()
 
   const { error } = await supabase
     .from('partners')
-    .update({ commission_rate: rate })
+    .update({ commission_percentage: rate })
     .eq('id', partnerId)
 
   if (error) throw new Error(error.message)
@@ -61,11 +61,11 @@ export async function updatePartnerCommission(partnerId: string, rate: number) {
 // Order actions
 export async function updateOrderStatus(orderId: string, status: string) {
   await requireAdmin()
-  const supabase = await createClient() as any
+  const supabase = await createClient()
 
   const { error } = await supabase
     .from('orders')
-    .update({ status })
+    .update({ status: status as any })
     .eq('id', orderId)
 
   if (error) throw new Error(error.message)
@@ -75,7 +75,7 @@ export async function updateOrderStatus(orderId: string, status: string) {
 // Item actions
 export async function toggleItemStatus(itemId: string, isActive: boolean) {
   await requireAdmin()
-  const supabase = await createClient() as any
+  const supabase = await createClient()
 
   const { error } = await supabase
     .from('items')
@@ -92,7 +92,7 @@ export async function toggleItemStatus(itemId: string, isActive: boolean) {
  */
 export async function approveItem(itemId: string) {
   await requireAdmin()
-  const supabase = await createClient() as any
+  const supabase = await createClient()
 
   const { error } = await supabase
     .from('items')
@@ -109,7 +109,7 @@ export async function approveItem(itemId: string) {
  */
 export async function rejectItem(itemId: string, reason: string) {
   await requireAdmin()
-  const supabase = await createClient() as any
+  const supabase = await createClient()
 
   const { error } = await supabase
     .from('items')
@@ -128,7 +128,7 @@ export async function rejectItem(itemId: string, reason: string) {
  */
 export async function bulkApproveItems(itemIds: string[]) {
   await requireAdmin()
-  const supabase = await createClient() as any
+  const supabase = await createClient()
 
   const { error } = await supabase
     .from('items')
@@ -142,7 +142,7 @@ export async function bulkApproveItems(itemIds: string[]) {
 
 export async function toggleItemSponsored(itemId: string, isSponsored: boolean) {
   await requireAdmin()
-  const supabase = await createClient() as any
+  const supabase = await createClient()
 
   const { error } = await supabase
     .from('items')
@@ -156,7 +156,7 @@ export async function toggleItemSponsored(itemId: string, isSponsored: boolean) 
 // Category actions
 export async function createCategory(name: string, slug: string) {
   await requireAdmin()
-  const supabase = await createClient() as any
+  const supabase = await createClient()
 
   const { error } = await supabase.from('categories').insert({
     name,
@@ -169,7 +169,7 @@ export async function createCategory(name: string, slug: string) {
 
 export async function updateCategory(id: string, name: string, slug: string) {
   await requireAdmin()
-  const supabase = await createClient() as any
+  const supabase = await createClient()
 
   const { error } = await supabase
     .from('categories')
@@ -182,7 +182,7 @@ export async function updateCategory(id: string, name: string, slug: string) {
 
 export async function toggleCategoryStatus(id: string, isActive: boolean) {
   await requireAdmin()
-  const supabase = await createClient() as any
+  const supabase = await createClient()
 
   const { error } = await supabase
     .from('categories')
@@ -195,7 +195,7 @@ export async function toggleCategoryStatus(id: string, isActive: boolean) {
 
 export async function deleteCategory(id: string) {
   await requireAdmin()
-  const supabase = await createClient() as any
+  const supabase = await createClient()
 
   const { error } = await supabase
     .from('categories')
@@ -216,7 +216,7 @@ export async function createCoupon(data: {
   usage_limit?: number
 }) {
   await requireAdmin()
-  const supabase = await createClient() as any
+  const supabase = await createClient()
 
   const { error } = await supabase.from('coupons').insert(data)
 
@@ -226,7 +226,7 @@ export async function createCoupon(data: {
 
 export async function toggleCouponStatus(id: string, isActive: boolean) {
   await requireAdmin()
-  const supabase = await createClient() as any
+  const supabase = await createClient()
 
   const { error } = await supabase
     .from('coupons')
@@ -252,7 +252,7 @@ export async function addPincode(pincode: string) {
 
 export async function togglePincodeStatus(id: string, isActive: boolean) {
   await requireAdmin()
-  const supabase = await createClient() as any
+  const supabase = await createClient()
 
   const { error } = await supabase
     .from('serviceable_pincodes')
@@ -265,7 +265,7 @@ export async function togglePincodeStatus(id: string, isActive: boolean) {
 
 export async function deletePincode(id: string) {
   await requireAdmin()
-  const supabase = await createClient() as any
+  const supabase = await createClient()
 
   const { error } = await supabase
     .from('serviceable_pincodes')
@@ -279,7 +279,7 @@ export async function deletePincode(id: string) {
 // Payout actions
 export async function processPartnerPayout(payoutId: string) {
   await requireAdmin()
-  const supabase = await createClient() as any
+  const supabase = await createClient()
 
   const { error } = await supabase
     .from('partner_payouts')
@@ -296,7 +296,7 @@ export async function processPartnerPayout(payoutId: string) {
 // Return actions
 export async function approveReturn(returnId: string, refundAmount: number) {
   await requireAdmin()
-  const supabase = await createClient() as any
+  const supabase = await createClient()
 
   const { error } = await supabase
     .from('returns')
@@ -313,7 +313,7 @@ export async function approveReturn(returnId: string, refundAmount: number) {
 
 export async function rejectReturn(returnId: string) {
   await requireAdmin()
-  const supabase = await createClient() as any
+  const supabase = await createClient()
 
   const { error } = await supabase
     .from('returns')
@@ -347,20 +347,20 @@ export async function toggleCashbackRuleStatus(id: string, isActive: boolean) {
 // Wallet actions
 export async function creditWallet(userId: string, amount: number, description: string) {
   await requireAdmin()
-  const supabase = await createClient() as any
+  const supabase = await createClient()
 
   // First, update or create wallet
   const { data: existing } = await supabase
     .from('wyshkit_money')
-    .select('id, balance')
+    .select('user_id, balance')
     .eq('user_id', userId)
-    .single()
+    .maybeSingle()
 
   if (existing) {
     await supabase
       .from('wyshkit_money')
       .update({ balance: (existing.balance || 0) + amount })
-      .eq('id', existing.id)
+      .eq('user_id', existing.user_id)
   } else {
     await supabase
       .from('wyshkit_money')
@@ -381,13 +381,13 @@ export async function creditWallet(userId: string, amount: number, description: 
 // Settings actions
 export async function updateSetting(key: string, value: string | number | boolean) {
   await requireAdmin()
-  const supabase = await createClient() as any
+  const supabase = await createClient()
 
   const { error } = await supabase
     .from('app_settings')
     .upsert({
       key,
-      value: value as unknown as Record<string, unknown>,
+      value: value as any,
       updated_at: new Date().toISOString(),
     })
 

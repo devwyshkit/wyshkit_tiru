@@ -32,7 +32,7 @@ export function ActionSlider({
     const containerRef = useRef<HTMLDivElement>(null);
     const handleRef = useRef<HTMLDivElement>(null);
     const [maxDrag, setMaxDrag] = useState(240);
-    const [isTouch, setIsTouch] = useState(true);
+    const [isTouch, setIsTouch] = useState<boolean | null>(null);
     const [isMounted, setIsMounted] = useState(false);
 
     useEffect(() => {
@@ -125,7 +125,8 @@ export function ActionSlider({
     if (!isMounted) return null;
 
     // Desktop fallback
-    if (!isTouch) {
+    // isTouch=null (SSR) -> Default to button for Zero-Flash Desktop
+    if (isTouch === null || !isTouch) {
         return (
             <button
                 disabled={disabled || isLoading || isSuccess}
@@ -137,6 +138,7 @@ export function ActionSlider({
                     (disabled || isLoading) && "opacity-60 cursor-not-allowed",
                     className
                 )}
+                aria-label={isSuccess ? successLabel : label.replace(/Slide to\s+/i, '')}
             >
                 {isLoading ? (
                     <div className="flex items-center justify-center gap-3">
@@ -149,7 +151,7 @@ export function ActionSlider({
                         <span>{successLabel}</span>
                     </div>
                 ) : (
-                    label
+                    label.replace(/Slide to\s+/i, '')
                 )}
             </button>
         );

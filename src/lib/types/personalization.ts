@@ -48,12 +48,19 @@ export interface DraftLineItem {
   selectedAddons?: SelectedAddon[];
   partnerName?: string;
   partnerId?: string | null;
+  partnerLatitude?: number | null;
+  partnerLongitude?: number | null;
   // WYSHKIT 2026: Hydration fields for Checkout
   basePrice?: number;
   variantPrice?: number;
   variantName?: string;
   personalizationPrice?: number;
   addonsPrice?: number;
+  // WYSHKIT 2026: Metadata for hasItemPersonalization and IdentityForm
+  personalization_options?: any[];
+  item_addons?: any[];
+  is_personalized?: boolean;
+  personalization_details?: any;
 }
 
 export interface DraftTransaction {

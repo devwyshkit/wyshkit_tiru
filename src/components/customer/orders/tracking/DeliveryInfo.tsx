@@ -18,7 +18,7 @@ export function DeliveryInfo({ order }: DeliveryInfoProps) {
                         <Package className="size-5 text-zinc-400" />
                     </div>
                     <div>
-                        <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider">Tracking ID</p>
+                        <p className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">Tracking ID</p>
                         <p className="text-sm font-bold text-zinc-900">{order.courier_partner || 'Shadowfax'} • {order.awb_number}</p>
                     </div>
                 </div>
@@ -30,15 +30,15 @@ export function DeliveryInfo({ order }: DeliveryInfoProps) {
                         <MapPin className="size-5 text-zinc-400" />
                     </div>
                     <div>
-                        <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider mb-0.5">Delivery Address</p>
-                        <p className="text-xs font-medium text-zinc-600 line-clamp-2">
+                        <p className="text-[10px] font-black text-zinc-500 uppercase tracking-widest mb-0.5">Delivery Address</p>
+                        <p className="text-xs font-bold text-zinc-700 line-clamp-2">
                             {typeof order.delivery_address === 'object'
                                 ? `${(order.delivery_address as Record<string, any>).name || ''} • ${(order.delivery_address as Record<string, any>).address_line1 || (order.delivery_address as Record<string, any>).line1 || ''}`
                                 : 'Address on file'}
                         </p>
                         {((order as any).gstin || (order.delivery_address as any)?.gstin) && (
                             <div className="mt-2 flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-zinc-50 border border-zinc-100 w-fit">
-                                <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider">GSTIN:</span>
+                                <span className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">GSTIN:</span>
                                 <span className="text-[10px] font-bold text-zinc-600 uppercase">{(order as any).gstin || (order.delivery_address as any).gstin}</span>
                             </div>
                         )}

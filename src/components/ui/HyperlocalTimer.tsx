@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { Timer, Clock } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { Badge } from '@/components/ui/badge';
 
 interface HyperlocalTimerProps {
     deadline?: string; // ISO string
@@ -68,40 +69,41 @@ export function HyperlocalTimer({
 
     if (variant === 'badge') {
         return (
-            <div className={cn(
-                "px-2 py-0.5 rounded-md flex items-center gap-1.5 transition-colors",
-                isUrgent ? "bg-rose-50 text-rose-600 border border-rose-100" : "bg-amber-50 text-amber-600 border border-amber-100",
-                className
-            )}>
+            <Badge
+                variant={isUrgent ? "destructive" : "secondary"}
+                className={cn("gap-1.5 px-2", className)}
+            >
                 <Clock className={cn("size-2.5", isUrgent && "animate-pulse")} />
-                <span className="text-[9px] font-black uppercase tracking-tighter tabular-nums">{timeLeft}</span>
-            </div>
+                <span className="tabular-nums">{timeLeft}</span>
+            </Badge>
         );
     }
+
+    const isDark = variant === 'default' && className?.includes('bg-zinc-800') || className?.includes('bg-zinc-900') || className?.includes('bg-black');
 
     return (
         <div className={cn(
             "flex items-center gap-3 p-3 rounded-2xl border transition-all duration-300",
-            isUrgent ? "bg-rose-50/50 border-rose-100 shadow-[0_4px_12px_rgba(225,29,72,0.05)]" : "bg-white border-zinc-100",
+            isUrgent ? "bg-rose-50/50 border-rose-100 shadow-[0_4px_12px_rgba(225,29,72,0.05)]" : (isDark ? "bg-white/5 border-white/10" : "bg-white border-zinc-100"),
             className
         )}>
             <div className={cn(
                 "size-8 rounded-xl flex items-center justify-center transition-colors",
-                isUrgent ? "bg-rose-100 text-rose-600" : "bg-black text-white"
+                isUrgent ? "bg-rose-100 text-rose-600" : (isDark ? "bg-white/10 text-white" : "bg-black text-white")
             )}>
                 <Timer className={cn("size-4", isUrgent && "animate-pulse")} />
             </div>
             <div>
                 <p className={cn(
                     "text-[9px] font-black uppercase tracking-[0.15em] mb-0.5",
-                    isUrgent ? "text-rose-500" : "text-zinc-400"
+                    isUrgent ? "text-rose-500" : (isDark ? "text-white/40" : "text-zinc-400")
                 )}>
                     {isUrgent ? 'Expiring Soon' : 'Preparation Deadline'}
                 </p>
                 <div className="flex items-center gap-2">
                     <span className={cn(
                         "text-sm font-black tabular-nums tracking-tight",
-                        isUrgent ? "text-rose-700" : "text-zinc-900"
+                        isUrgent ? "text-rose-700" : (isDark ? "text-white" : "text-zinc-900")
                     )}>
                         {timeLeft}
                     </span>

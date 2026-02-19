@@ -14,60 +14,60 @@ interface RoleGuardProps {
   fallbackPath?: string;
 }
 
-export function RoleGuard({ 
-  children, 
-  allowedRoles, 
-  fallbackPath = '/' 
+export function RoleGuard({
+  children,
+  allowedRoles,
+  fallbackPath = '/'
 }: RoleGuardProps) {
   const router = useRouter();
   const { user, loading: authLoading } = useAuth();
   const [loading, setLoading] = useState(true);
   const [authorized, setAuthorized] = useState(false);
 
-    useEffect(() => {
-      let mounted = true;
-      
-      async function checkRole() {
-        if (authLoading) return;
-        
-        if (!user) {
-          if (mounted) setLoading(false);
-          return;
-        }
+  useEffect(() => {
+    let mounted = true;
 
-          try {
-            const actualRole = await resolveUserRoleClient(user.id);
+    async function checkRole() {
+      if (authLoading) return;
 
-            if (mounted) {
-              // Wyshkit 2026: Admins can access everything (Partner/Admin dashboards)
-              const isAuthorized = allowedRoles.includes(actualRole) || actualRole === 'admin';
-              
-              if (isAuthorized) {
-                setAuthorized(true);
-              } else {
-                router.push(fallbackPath);
-              }
-            }
-          } catch (error) {
-          logger.error('Error checking role in RoleGuard', error, { allowedRoles, fallbackPath });
-          if (mounted) router.push(fallbackPath);
-        } finally {
-          if (mounted) setLoading(false);
-        }
+      if (!user) {
+        if (mounted) setLoading(false);
+        return;
       }
 
-      checkRole();
-      return () => {
-        mounted = false;
-      };
-    }, [user, authLoading, allowedRoles, fallbackPath, router]);
+      try {
+        const actualRole = await resolveUserRoleClient(user.id);
+
+        if (mounted) {
+          // Wyshkit 2026: Admins can access everything (Partner/Admin dashboards)
+          const isAuthorized = allowedRoles.includes(actualRole) || actualRole === 'admin';
+
+          if (isAuthorized) {
+            setAuthorized(true);
+          } else {
+            router.push(fallbackPath);
+          }
+        }
+      } catch (error) {
+        logger.error('Error checking role in RoleGuard', error, { allowedRoles, fallbackPath });
+        if (mounted) router.push(fallbackPath);
+      } finally {
+        if (mounted) setLoading(false);
+      }
+    }
+
+    checkRole();
+    return () => {
+      mounted = false;
+    };
+  }, [user, authLoading, allowedRoles, fallbackPath, router]);
 
 
   if (authLoading || loading) {
     return (
       <div className="flex h-screen w-full flex-col items-center justify-center bg-white">
-        <Loader2 className="h-10 w-10 animate-spin text-[#D91B24]" />
-          <p className="mt-4 text-[13px] font-bold text-zinc-900 tracking-tight">Authenticating...</p>
+        <Loader2 className="h-10 w-10 animate-spin text-[var(--primary)]" />
+        <p className="mt-4 text-[13px] font-bold text-zinc-900 tracking-tight">Authenticating...</p>
       </div>
     );
   }

@@ -1,9 +1,10 @@
 "use client";
 
 import { useMemo } from "react";
-import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
+import { createClient } from "@/lib/supabase/client";
 import { normalizePhone } from "@/lib/utils/phone";
+import { logger } from "@/lib/logging/logger";
 import { useAuthContext } from "@/providers/AuthProvider";
 import { mergeGuestCartToUser } from "@/lib/actions/draft-order";
 
@@ -63,7 +64,7 @@ export function useAuth() {
       if (!result.error && result.data.user) {
         // WYSHKIT 2026: Parallelize critical path for faster Time-to-Interactive
         await Promise.all([
-          mergeGuestCartToUser().catch(e => console.error('Cart merge failed', e)),
+          mergeGuestCartToUser().catch(e => logger.error('Cart merge failed', e as Error)),
           refreshSession()
         ]);
 

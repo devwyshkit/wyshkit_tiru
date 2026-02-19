@@ -26,15 +26,19 @@ export async function calculateOrderTotalRPC(
     hasPersonalization?: boolean;
     selectedAddons?: any[];
   }>,
-  deliveryFee: number = PRICING.DELIVERY_FEE_3KM,
+  deliveryFeeOverride: number = PRICING.DELIVERY_FEE_3KM,
   addressId?: string | null,
   couponCode?: string | null,
-  distanceKm?: number | null,
+  distanceKmParam?: number | null,
   useWallet: boolean = false,
   userId?: string | null
 ): Promise<{ data: PricingBreakdown | null; error?: string }> {
   try {
     const supabase = await createClient();
+
+    // WYSHKIT 2026: Authority moves to RPC, but we can hydrate local vars for logging/overrides
+    let finalDeliveryFee = deliveryFeeOverride;
+    let finalDistanceKm = distanceKmParam;
 
     // Call Postgres RPC with standardized Swiggy 2026 parameters
     const { data, error } = await supabase.rpc('calculate_order_total', {
@@ -46,10 +50,10 @@ export async function calculateOrderTotalRPC(
         hasPersonalization: item.hasPersonalization ?? false,
         selectedAddons: item.selectedAddons ?? []
       })) as unknown as Json,
-      p_delivery_fee_override: deliveryFee,
+      p_delivery_fee_override: finalDeliveryFee,
       p_address_id: addressId || undefined,
       p_coupon_code: couponCode || undefined,
-      p_distance_km: distanceKm || undefined,
+      p_distance_km: finalDistanceKm || undefined,
       p_use_wallet: useWallet,
       p_user_id: userId || undefined
     } as any);
@@ -64,22 +68,33 @@ export async function calculateOrderTotalRPC(
     }
 
     // Handle error response from RPC
-    if ('error' in data && data.error) {
-      return { data: null, error: data.error as string };
+    if ('error' in data && (data as any).error) {
+      return { data: null, error: (data as any).error as string };
     }
 
-    // Return pricing breakdown
+    // Return pricing breakdown with inclusive GST logic (Wyshkit 2026 Audit Fix)
     const result = data as any;
+    const subtotalValue = Number(result.subtotal) || 0;
+    const personalizationValue = Number(result.personalizationCharges) || 0;
+    const deliveryValue = Number(result.deliveryFee) || 0;
+    const platformValue = Number(result.platformFee) || 0;
+    const discountValue = Number(result.discount) || 0;
+    const walletValue = Number(result.walletUsed) || 0;
+
+    // Total is simply the sum of all components minus discounts
+    // In inclusive GST, GST is ALREADY part of the subtotal/charges.
+    const calculatedTotal = subtotalValue + personalizationValue + deliveryValue + platformValue - discountValue - walletValue;
+
     return {
       data: {
-        subtotal: Number(result.subtotal) || 0,
-        personalizationCharges: Number(result.personalizationCharges) || 0,
-        deliveryFee: Number(result.deliveryFee) || 0,
-        platformFee: Number(result.platformFee) || 0,
-        gst: Number(result.gst) || 0,
-        discount: Number(result.discount) || 0,
-        walletDiscount: Number(result.walletUsed) || 0,
-        total: Number(result.total) || 0,
+        subtotal: subtotalValue,
+        personalizationCharges: personalizationValue,
+        deliveryFee: deliveryValue,
+        platformFee: platformValue,
+        gst: Number(result.gst) || 0, // Keep for display, but it's part of the items
+        discount: discountValue,
+        walletDiscount: walletValue,
+        total: calculatedTotal,
       },
     };
   } catch (error) {

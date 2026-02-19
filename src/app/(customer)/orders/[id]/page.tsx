@@ -2,7 +2,7 @@ import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import { Suspense } from "react";
 import { OrderDetailsPageClient } from "@/components/customer/orders/OrderDetailsPageClient";
-import { ErrorBoundary } from "@/components/ErrorBoundary";
+import { SurfaceErrorBoundaryWithRouter as ErrorBoundary } from "@/components/error/SurfaceErrorBoundary";
 
 /**
  * WYSHKIT 2026: Order Details Page
@@ -28,7 +28,7 @@ export default async function OrderDetailsPage({
 
   return (
     <div className="min-h-screen">
-      <ErrorBoundary>
+      <ErrorBoundary surfaceName="Order Details">
         <Suspense fallback={
           <div className="flex items-center justify-center py-20">
             <div className="text-sm text-zinc-500">Loading order...</div>

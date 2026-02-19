@@ -26,7 +26,7 @@ export function getOrderStatusColor(status: string): string {
     case ORDER_STATUS.PLACED:
     case ORDER_STATUS.PREVIEW_READY:
     case ORDER_STATUS.REVISION_REQUESTED:
-      return "bg-rose-50 text-[#D91B24] border-rose-100";
+      return "bg-rose-50 text-[var(--primary)] border-rose-100";
 
     case ORDER_STATUS.DETAILS_RECEIVED:
     case ORDER_STATUS.IN_PRODUCTION:

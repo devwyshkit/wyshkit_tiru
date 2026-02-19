@@ -127,7 +127,7 @@ const STATUS_DISPLAY: Record<string, string> = {
 
 // Color classes for statuses - Wyshkit 2026 Design Language
 const STATUS_COLORS: Record<string, string> = {
-  PLACED: 'text-[#D91B24]',
+  PLACED: 'text-[var(--primary)]',
   CONFIRMED: 'text-[#60B246]',
   DETAILS_RECEIVED: 'text-amber-500',
   PREVIEW_READY: 'text-blue-500',
@@ -186,3 +186,57 @@ export const STATUS_GROUPS = {
     ORDER_STATUS.REFUNDED,
   ] as const,
 } as const;
+// WYSHKIT 2026: Item-level status configuration
+// Used by OrderItemsList and CreativeBrief for consistent item status badges
+export function getItemStatusConfig(status: string) {
+  const s = (status || '').toUpperCase();
+
+  if (s === 'WAITING_FOR_INPUT' || s === 'AWAITING_DETAILS') {
+    return {
+      label: 'ACTION REQ.',
+      color: 'text-amber-700 bg-amber-50 border-amber-200 shadow-sm shadow-amber-100/50',
+      icon: Sparkles
+    };
+  }
+
+  if (s === 'DETAILS_SHARED' || s === 'DETAILS_RECEIVED') {
+    return {
+      label: 'Reviewing',
+      color: 'text-zinc-600 bg-zinc-100 border-zinc-200',
+      icon: Clock
+    };
+  }
+
+  if (s === 'PREVIEW_READY') {
+    return {
+      label: 'REVIEW REQ.',
+      color: 'text-rose-700 bg-rose-50 border-rose-200 shadow-sm shadow-rose-100/50',
+      icon: PreviewIcon
+    };
+  }
+
+  if (s === 'APPROVED' || s === 'IN_PRODUCTION') {
+    return {
+      label: 'Preparing',
+      color: 'text-emerald-700 bg-emerald-50 border-emerald-200',
+      icon: Package
+    };
+  }
+
+  if (s === 'PACKED') {
+    return {
+      label: 'Ready',
+      color: 'text-emerald-700 bg-emerald-50 border-emerald-200',
+      icon: CheckCircle2
+    };
+  }
+
+  return {
+    label: s.toLowerCase(),
+    color: 'text-zinc-700 bg-zinc-100 border-zinc-200',
+    icon: Clock
+  };
+}
+
+// Internal icon mapping to avoid name collision with Clock
+const PreviewIcon = (props: any) => React.createElement(AlertCircle, props);

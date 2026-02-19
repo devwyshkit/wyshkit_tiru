@@ -7,6 +7,7 @@ import {
   DBPartner,
   OrderItem,
   ItemWithFullSpec,
+  ItemWithPartner,
   ItemAddon,
   PersonalizationOption,
   Variant,
@@ -52,7 +53,7 @@ export async function getItems(options: {
     const { data, error } = await query;
     if (error) throw error;
 
-    return { data: (data as unknown) as Item[] };
+    return { data: (data as ItemWithPartner[]) || [] };
   } catch (error) {
     logger.error('Failed to fetch items', error, { options });
     return { data: null, error: 'Failed to fetch items' };
@@ -98,7 +99,7 @@ export async function getFilteredItems(options: {
     const { data, error, count } = await query.range(offset, offset + limit - 1);
     if (error) throw error;
 
-    return { data: { items: (data as unknown as Item[]) || [], total: count || 0 } };
+    return { data: { items: (data as ItemWithPartner[]) || [], total: count || 0 } };
   } catch (error) {
     logger.error('Failed to fetch filtered items', error, { options });
     return { error: 'Failed to fetch items' };
@@ -126,7 +127,7 @@ export async function getUpsellItems(
       .limit(4);
 
     if (error) throw error;
-    return { data: (data as unknown) as Item[] };
+    return { data: (data as ItemWithPartner[]) || [] };
   } catch (error) {
     logger.error('Failed to fetch upsell items', error, { itemId, partnerId, category });
     return { data: null, error: 'Failed to fetch upsell items' };
@@ -173,8 +174,8 @@ export async function getItemWithFullSpec(itemId: string): Promise<{ data: ItemW
     if (!itemRes.data) return { data: null, error: 'Item not found' };
 
     const fullItem: ItemWithFullSpec = {
-      ...(itemRes.data as Item),
-      partners: itemRes.data.partners as Partner,
+      ...(itemRes.data),
+      partners: itemRes.data.partners as ItemWithFullSpec['partners'],
       variants: (variantsRes.data as Variant[]) || [],
       item_addons: (addonsRes.data as ItemAddon[]) || [],
       personalization_options: (personalizationRes.data as PersonalizationOption[]) || []
@@ -321,6 +322,17 @@ export type PersonalizationOptionInput = {
 };
 
 /**
+ * WYSHKIT 2026: Category-driven Tax Mapping (HSN/GST Compliance)
+ */
+const CATEGORY_TAX_MAP: Record<string, { hsn: string; gst: number }> = {
+  'flowers': { hsn: '0603', gst: 5.00 },
+  'cakes': { hsn: '1905', gst: 5.00 },
+  'gifts': { hsn: '9983', gst: 5.00 },
+  'personalized-gifts': { hsn: '9983', gst: 12.00 }, // Premium design services
+  'luxury': { hsn: '9983', gst: 18.00 },
+};
+
+/**
  * Create new item (Partner catalog)
  * WYSHKIT 2026: Auto-approval for items from active partners (Swiggy pattern)
  * Trust flows down: once partner is approved, their items are trusted
@@ -367,11 +379,12 @@ export async function createItem(
         material: input.material || null,
         capacity: input.capacity || null,
         weight_grams: input.weight_grams || null,
-        dimensions_cm: input.dimensions_cm ? JSON.stringify(input.dimensions_cm) : null,
-        hsn_code: input.hsn_code || null,
-        gst_percentage: input.gst_percentage || 18.00,
+        dimensions_cm: input.dimensions_cm ? (input.dimensions_cm as any) : null,
+        // WYSHKIT 2026: Category-driven tax compliance
+        hsn_code: input.hsn_code || CATEGORY_TAX_MAP[input.category?.toLowerCase() || '']?.hsn || '9983',
+        gst_percentage: input.gst_percentage || CATEGORY_TAX_MAP[input.category?.toLowerCase() || '']?.gst || 5.00,
         approval_status: approvalStatus,
-      } as any)
+      })
       .select('id')
       .single();
 
@@ -407,9 +420,9 @@ export async function updateItem(
       .from('items')
       .update({
         ...input,
-        dimensions_cm: input.dimensions_cm ? JSON.stringify(input.dimensions_cm) : undefined,
+        dimensions_cm: input.dimensions_cm ? (input.dimensions_cm as any) : undefined,
         updated_at: new Date().toISOString(),
-      } as any)
+      })
       .eq('id', itemId);
 
     if (error) throw error;

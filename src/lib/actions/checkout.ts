@@ -7,6 +7,7 @@ import { calculateOrderTotalRPC } from './pricing'
 import { logError } from '@/lib/utils/error-handler'
 import { calculateHaversineDistance } from '@/lib/utils/distance'
 import { getDeliveryFeeByDistance } from '@/lib/utils/pricing'
+import { hasItemPersonalization } from '@/lib/utils/personalization'
 import type { HydratedDraftItem, PricingBreakdown } from '@/components/customer/checkout/types'
 import type { Address } from '@/lib/types/address'
 import type { WalletInfo } from './wallet'
@@ -14,7 +15,6 @@ import type { UpsellItem } from '@/components/features/UpsellGrid'
 
 export interface CheckoutData {
     items: HydratedDraftItem[]
-    upsellItems: UpsellItem[]
     addresses: Address[]
     walletInfo: WalletInfo | null
     pricing: PricingBreakdown | null
@@ -31,6 +31,7 @@ export interface CheckoutData {
     } | null
     partnerName?: string
     partnerCity?: string
+    partnerPrepMins?: number
     error?: string
 }
 
@@ -71,7 +72,6 @@ export const getCheckoutData = cache(async (): Promise<CheckoutData> => {
         if (!cart || cart.items.length === 0) {
             return {
                 items: [],
-                upsellItems: [],
                 addresses: addresses,
                 walletInfo: walletInfo,
                 pricing: null,
@@ -82,29 +82,24 @@ export const getCheckoutData = cache(async (): Promise<CheckoutData> => {
             }
         }
 
-        // 2. Hydrate items (include selectedAddons for pricing and personalization detection)
-        const draftItems = cart.items.map(item => ({
-            itemId: item.itemId,
+        // 2. Hydrate items (Already hydrated from getCart, just map to HydratedDraftItem if needed)
+        const hydratedItems = (cart.items as any[]).map(item => ({
+            ...item,
+            name: item.itemName,
+            image: item.itemImage,
             variantId: item.selectedVariantId,
+            itemId: item.itemId,
             personalization: item.personalization || { enabled: false },
-            selectedAddons: item.selectedAddons || [],
-            quantity: item.quantity
-        }))
+            selectedAddons: item.selectedAddons || []
+        })) as unknown as HydratedDraftItem[];
 
-        // 3. Parallel fetch of transaction data (upsells)
-        const transactionData = await getTransactionData(draftItems)
-        const hydratedItems = transactionData.hydratedItems as unknown as HydratedDraftItem[]
-        const upsellItems = transactionData.upsellItems as unknown as UpsellItem[]
-
-        // 4. Calculate Final Pricing (Server-side Truth via RPC)
         const pricingItems = hydratedItems.map(item => ({
             itemId: item.itemId,
             quantity: item.quantity,
-            variantId: item.variantId,
-            personalizationOptionId: (item.personalization as any)?.optionId || null,
-            hasPersonalization: !!((item.personalization as any)?.enabled && (item.personalization as any)?.optionId) ||
-                (item.selectedAddons || []).some((a: { requires_preview?: boolean }) => !!a.requires_preview),
-            selectedAddons: item.selectedAddons || []
+            variantId: (item as any).variantId, // Keep original variantId from item
+            personalizationOptionId: (item as any).personalization?.optionId || null,
+            hasPersonalization: hasItemPersonalization(item),
+            selectedAddons: (item as any).selectedAddons || []
         }))
 
         // WYSHKIT 2026: Prioritize the manually selected address from cookie
@@ -135,7 +130,6 @@ export const getCheckoutData = cache(async (): Promise<CheckoutData> => {
         if (!defaultAddress) {
             return {
                 items: hydratedItems,
-                upsellItems: upsellItems,
                 addresses: addresses,
                 walletInfo: walletInfo,
                 pricing: null,
@@ -172,7 +166,6 @@ export const getCheckoutData = cache(async (): Promise<CheckoutData> => {
             logError(new Error(pricingRes.error || 'Pricing calculation returned no data'), 'GetCheckoutData:PricingRPC');
             return {
                 items: hydratedItems,
-                upsellItems: upsellItems,
                 addresses: addresses,
                 walletInfo: walletInfo,
                 pricing: null,
@@ -196,7 +189,6 @@ export const getCheckoutData = cache(async (): Promise<CheckoutData> => {
 
         return {
             items: hydratedItems,
-            upsellItems: upsellItems,
             addresses: addresses,
             walletInfo: walletInfo,
             pricing: pricing,
@@ -206,6 +198,7 @@ export const getCheckoutData = cache(async (): Promise<CheckoutData> => {
             user: user ? { id: user.id, email: user.email } : null,
             partnerName: hydratedItems[0]?.partnerName || (cartRes.cart as any)?.items?.[0]?.partnerName,
             partnerCity: (cartRes.cart as any)?.items?.[0]?.partnerCity || 'Bangalore',
+            partnerPrepMins: (cartRes.cart as any)?.items?.[0]?.partnerPrepMins || 30,
         }
 
     } catch (error) {
@@ -213,7 +206,6 @@ export const getCheckoutData = cache(async (): Promise<CheckoutData> => {
         logError(error, 'GetCheckoutData');
         return {
             items: [],
-            upsellItems: [],
             addresses: [],
             walletInfo: null,
             pricing: null,

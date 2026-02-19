@@ -50,7 +50,11 @@ async function logOrderStatusHistory(orderId: string, type: string, title: strin
 
 export async function submitOrderPersonalization(orderId: string, personalizationInput: Record<string, unknown>): Promise<{ success: boolean; error?: string }> {
   try {
-    logger.info(`[submitOrderPersonalization] Starting for order: ${orderId}`, { personalizationInput });
+    logger.info(`[submitOrderPersonalization] Starting for order: ${orderId}`, {
+      orderId,
+      personalizationInput: Object.keys(personalizationInput),
+      hasDetails: Object.values(personalizationInput).some((v: any) => v.text || v.image_url)
+    });
 
     // 1. Verify Ownership & Fetch Current State
     const supabase = await createClient();
@@ -110,30 +114,36 @@ export async function submitOrderPersonalization(orderId: string, personalizatio
     }
 
     // 4. Try updating Relational Items & Order Personalization
+    const itemUpdates = [];
     const personalizationEntries = [];
 
     for (const [orderItemId, details] of Object.entries(personalizationInput)) {
       const d = details as any;
 
-      // Update order_item status directly
-      await adminSupabase
-        .from('order_items')
-        .update({
-          personalization_details: d as unknown as Json,
-          status: 'submitted'
-        })
-        .eq('id', orderItemId);
+      // Prepare batch update for order_items
+      itemUpdates.push({
+        id: orderItemId,
+        personalization_details: d as unknown as Json,
+        status: 'submitted'
+      });
 
       // WYSHKIT 2026: Add to relational personalization table using order_item_id
       personalizationEntries.push({
         order_id: orderId,
-        order_item_id: orderItemId, // Updated to use relational ID
+        order_item_id: orderItemId,
         text_input: d.text || null,
         uploaded_files: d.image_url ? [d.image_url] : (d.images || []),
         instructions: d.instructions || null,
         status: 'submitted',
         submitted_at: new Date().toISOString()
       });
+    }
+
+    if (itemUpdates.length > 0) {
+      // Batch update order_items using upsert (IDs match, so it updates)
+      await adminSupabase
+        .from('order_items')
+        .upsert(itemUpdates as any, { onConflict: 'id' });
     }
 
     if (personalizationEntries.length > 0) {
@@ -434,7 +444,11 @@ export async function createOrder(payload: PlaceOrderPayload) {
     const rpcResult = result as any;
 
     if (rpcResult.success && rpcResult.orderId && !rpcResult.isNew) {
-      logger.info(`[createOrder] Idempotency hit: Order already existed for Razorpay Order ${payload.razorpayOrderId}`, { orderId: rpcResult.orderId });
+      logger.info(`[createOrder] Idempotency hit: Order already existed for Razorpay Order ${payload.razorpayOrderId}`, {
+        orderId: rpcResult.orderId,
+        userId: payload.userId,
+        razorpayOrderId: payload.razorpayOrderId
+      });
     }
 
     if (!rpcResult.success) {

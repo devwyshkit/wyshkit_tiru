@@ -65,14 +65,15 @@ export interface OrderDetails extends Order {
     orderItems?: OrderItem[];
 }
 
+export type ItemWithPartner = Item & {
+    partners: Pick<Partner, 'id' | 'name' | 'slug' | 'display_name' | 'image_url'> | null;
+};
+
+export type ItemListing = Views<'v_item_listings'>;
+
 export type ItemWithFullSpec = Item & {
-    partners: Pick<Partner, 'name' | 'slug' | 'city' | 'rating' | 'display_name' | 'image_url' | 'fssai_license' | 'gstin'> | null;
+    partners: Pick<Partner, 'id' | 'name' | 'slug' | 'city' | 'rating' | 'display_name' | 'image_url' | 'fssai_license' | 'gstin'> | null;
     variants: Variant[];
     item_addons: ItemAddon[];
     personalization_options: PersonalizationOption[];
-    // Extended properties used in UI
-    stock_quantity?: number | null;
-    low_stock_threshold?: number | null;
-    fragile?: boolean | null;
-    packaging_type?: string | null;
 };

@@ -2,6 +2,7 @@ import { Suspense } from "react";
 import { SearchPageClient } from "@/components/customer/search/SearchPageClient";
 import { searchFiltered } from "@/lib/actions/search";
 import { SearchSkeleton } from "@/components/customer/search/SearchSkeleton";
+import { SurfaceErrorBoundaryWithRouter } from "@/components/error/SurfaceErrorBoundary";
 
 /**
  * WYSHKIT 2026: Intent-Based Search Page (Server Component)
@@ -27,9 +28,11 @@ export default async function SearchPage({
 
   return (
     <div className="min-h-screen">
-      <Suspense fallback={<SearchSkeleton />}>
-        <AsyncSearchContent params={params} />
-      </Suspense>
+      <SurfaceErrorBoundaryWithRouter surfaceName="Search" showHomeButton>
+        <Suspense fallback={<SearchSkeleton />}>
+          <AsyncSearchContent params={params} />
+        </Suspense>
+      </SurfaceErrorBoundaryWithRouter>
     </div>
   );
 }

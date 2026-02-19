@@ -13,7 +13,7 @@ export function generateEstimatePDF(order: OrderForPDF): Blob {
 
   // Header
   doc.setFontSize(22);
-  doc.setTextColor(217, 27, 36); // #D91B24
+  doc.setTextColor(197, 160, 89); // Wyshkit Gold
   doc.setFont('helvetica', 'bold');
   doc.text('WyshKit Order Estimate', margin, y);
 
@@ -101,12 +101,12 @@ export function generateGSTINPDF(order: OrderForPDF, partner: PartnerForPDF): Bl
 
   // Header
   doc.setFontSize(22);
-  doc.setTextColor(217, 27, 36);
+  doc.setTextColor(197, 160, 89);
   doc.setFont('helvetica', 'bold');
   doc.text('GSTIN Certificate', 105, y, { align: 'center' });
 
   y += 15;
-  doc.setDrawColor(217, 27, 36);
+  doc.setDrawColor(197, 160, 89);
   doc.setLineWidth(2);
   doc.rect(margin, y, 170, 40);
 
@@ -114,7 +114,7 @@ export function generateGSTINPDF(order: OrderForPDF, partner: PartnerForPDF): Bl
   doc.setTextColor(104, 107, 120);
   doc.text('GST Identification Number', 105, y + 12, { align: 'center' });
   doc.setFontSize(24);
-  doc.setTextColor(217, 27, 36);
+  doc.setTextColor(197, 160, 89);
   doc.text(partner.gstin || 'APPLIED FOR', 105, y + 28, { align: 'center' });
 
   y += 60;

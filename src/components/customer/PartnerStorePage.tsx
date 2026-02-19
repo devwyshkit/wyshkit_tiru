@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { Star, Clock, MapPin, Search, ChevronRight } from 'lucide-react';
+import { Star, Clock, MapPin, ChevronRight, ArrowLeft } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { MappedPartner } from '@/lib/types/partner';
 import type { ItemListItem } from '@/lib/types/item';
@@ -12,8 +12,10 @@ import { ItemCard } from '@/components/customer/ItemCard';
 import { ContextualGrid } from '@/components/customer/ContextualGrid';
 import { ShareButton } from '@/components/ui/ShareButton';
 import Image from 'next/image';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { cn } from '@/lib/utils';
+import { useEffect, useMemo } from 'react';
+import { InterceptedItemSheet } from '@/components/customer/item/InterceptedItemSheet';
 
 const FALLBACK_IMAGE = '/images/logo.png';
 
@@ -25,10 +27,20 @@ interface PartnerStorePageProps {
 
 export function PartnerStorePage({ partnerId, initialData, initialItems }: PartnerStorePageProps) {
   const router = useRouter();
+  const searchParams = useSearchParams();
+
 
   // WYSHKIT 2026: Server-First - Data comes entirely from props
   const partner = initialData!;
-  const allItems = initialItems || [];
+  // WYSHKIT 2026: Zero Reflection - Filter out-of-stock items
+  const allItems = React.useMemo(() => {
+    const rawItems = initialItems || [];
+    // In production, strictly hide out of stock. In dev, we might show them for testing but standard is to hide.
+    return rawItems.filter(item =>
+      item.stock_status !== 'out_of_stock' &&
+      (typeof item.stock_quantity !== 'number' || item.stock_quantity > 0)
+    );
+  }, [initialItems]);
 
   // Filter state
   const [selectedCategory, setSelectedCategory] = useState<string>('Recommended');
@@ -47,20 +59,23 @@ export function PartnerStorePage({ partnerId, initialData, initialItems }: Partn
   }, [allItems, selectedCategory]);
 
 
-  const displayName = partner?.name || initialData?.name || 'Partner';
-  const displayImage = partner?.imageUrl || initialData?.imageUrl || FALLBACK_IMAGE;
-  const displayRating = partner?.rating || initialData?.rating;
-  const displayCity = partner?.city || initialData?.city || 'Local Partner';
-  const displayPrepHours = (partner as any)?.prep_hours || initialData?.prepHours || 24;
-  const displayDeliveryFee = (partner as any)?.delivery_fee ?? initialData?.deliveryFee ?? 0;
-  const displayDescription = partner?.description || initialData?.description || 'Discover quality items from this local partner.';
+  const displayName = partner?.name || 'Partner';
+  const displayImage = partner?.imageUrl || FALLBACK_IMAGE;
+  const displayRating = partner?.rating;
+  const displayCity = partner?.city || 'Local Partner';
+  const displayPrepHours = initialData?.prepHours || 0.75;
+  const prepTimeText = displayPrepHours < 1
+    ? `${Math.round(displayPrepHours * 60)}m`
+    : `${displayPrepHours}h`;
+  const displayDeliveryFee = initialData?.deliveryFee ?? 0;
+  const displayDescription = partner?.description || 'Discover quality items from this local partner.';
 
   if (!initialData || !initialItems) {
     return (
       <div className="flex flex-col items-center justify-center h-[60vh] p-6 text-center bg-background">
         <p className="text-sm font-medium text-zinc-900">Partner data not available</p>
-        <p className="text-xs text-zinc-500 mt-1">Please refresh the page</p>
-        <Button onClick={() => router.back()} variant="link" className="text-xs mt-2">Go back</Button>
+        <p className="text-xs text-zinc-500 mt-1">Try again in a moment</p>
+        <Button onClick={() => router.refresh()} variant="link" className="text-xs mt-2">Try Again</Button>
       </div>
     );
   }
@@ -86,7 +101,7 @@ export function PartnerStorePage({ partnerId, initialData, initialItems }: Partn
           onClick={() => router.back()}
           className="absolute top-4 left-4 z-20 size-10 rounded-full bg-white/20 backdrop-blur-md flex items-center justify-center text-white hover:bg-white/40 active:scale-95 transition-all"
         >
-          <span className="text-xl font-black">←</span>
+          <ArrowLeft className="size-5" />
         </button>
       </div>
 
@@ -128,7 +143,7 @@ export function PartnerStorePage({ partnerId, initialData, initialItems }: Partn
           <div className="flex items-center gap-4 mt-5 pt-5 border-t border-dashed border-zinc-100">
             <div className="flex items-center gap-2 text-[11px] font-black text-zinc-700 uppercase tracking-widest bg-zinc-50 px-3 py-1.5 rounded-xl border border-zinc-100">
               <Clock className="size-3.5 text-emerald-600" />
-              <span>{displayPrepHours}h prep</span>
+              <span>{prepTimeText} prep</span>
             </div>
           </div>
         </div>
@@ -167,14 +182,6 @@ export function PartnerStorePage({ partnerId, initialData, initialItems }: Partn
             ))}
           </div>
 
-          {/* WYSHKIT 2026: Browse Menu Button (Mobile Swiggy Pattern) */}
-          <div className="md:hidden flex-1" />
-          <button
-            onClick={() => document.getElementById('menu-items')?.scrollIntoView({ behavior: 'smooth' })}
-            className="md:hidden bg-zinc-900 text-white px-4 py-2 rounded-full text-[10px] font-black uppercase tracking-widest shadow-xl flex items-center gap-2"
-          >
-            <Search className="size-3" /> Browse Menu
-          </button>
         </aside>
 
         {/* Product Grid Area */}
@@ -224,7 +231,6 @@ export function PartnerStorePage({ partnerId, initialData, initialItems }: Partn
 
       {/* Cart Sheet / Floating Cart - Should be handled globally, but ensuring padding */}
       <div className="h-24 md:h-12" />
-
 
     </div>
   );

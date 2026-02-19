@@ -52,7 +52,7 @@ export function ShareButton({
         await navigator.share(shareData);
       } catch (err) {
         if ((err as Error).name !== 'AbortError') {
-          console.error('Error sharing:', err);
+          logger.error('Error sharing:', err as Error);
           copyToClipboard(shareUrl);
         }
       }

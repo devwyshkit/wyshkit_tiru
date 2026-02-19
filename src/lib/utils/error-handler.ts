@@ -29,12 +29,12 @@ export function getErrorMessage(error: unknown): string {
  */
 export function handleActionError(error: unknown): { error: string } {
   const message = getErrorMessage(error);
-  
-  // In development, include more details
-  if (process.env.NODE_ENV === 'development' && error instanceof Error && error.stack) {
-    console.error('[Action Error]', error.stack);
+
+  // Wyshkit 2026: Authority moved to central logger
+  if (error instanceof Error && error.stack) {
+    logger.error('Action Error', error);
   }
-  
+
   return { error: message };
 }
 
@@ -45,9 +45,7 @@ export function handleActionError(error: unknown): { error: string } {
 export function handleAPIError(error: unknown, statusCode: number = 500): NextResponse {
   const errorMessage = getErrorMessage(error);
 
-  if (process.env.NODE_ENV === 'development') {
-    console.error('[API Error]', error);
-  }
+  logger.error('API Error', error as Error);
 
   return NextResponse.json(
     { error: errorMessage },
@@ -59,8 +57,6 @@ export function handleAPIError(error: unknown, statusCode: number = 500): NextRe
  * Log error in development mode only
  */
 export function logError(error: unknown, context?: string): void {
-  if (process.env.NODE_ENV === 'development') {
-    const prefix = context ? `[${context}]` : '[Error]';
-    console.error(prefix, error);
-  }
+  const prefix = context ? `[${context}]` : '[Error]';
+  logger.error(prefix, error as Error);
 }

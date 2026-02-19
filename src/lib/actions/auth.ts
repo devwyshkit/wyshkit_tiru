@@ -14,7 +14,7 @@ export async function getCurrentUserPermissions(): Promise<UserPermissions> {
   try {
     const supabase = await createClient();
     const { data: { user } } = await supabase.auth.getUser();
-    
+
     if (!user) {
       return {
         isAdmin: false,
@@ -43,7 +43,7 @@ export async function getCurrentUserPermissions(): Promise<UserPermissions> {
 export async function verifyOTPServerAction(phone: string, token: string, returnUrl?: string) {
   try {
     const supabase = await createClient();
-    
+
     // WYSHKIT 2026: Try multiple formats for test OTP compatibility
     // Supabase test OTP config may use different formats:
     // 1. +91XXXXXXXXXX (E.164 format - standard)
@@ -56,7 +56,7 @@ export async function verifyOTPServerAction(phone: string, token: string, return
     ];
 
     let lastError: Error | null = null;
-    
+
     for (const phoneFormat of formatsToTry) {
       const { data, error } = await supabase.auth.verifyOtp({
         phone: phoneFormat,
@@ -68,9 +68,18 @@ export async function verifyOTPServerAction(phone: string, token: string, return
         // Success - format matched Supabase config
         const permissions = await resolveUserPermissionsServer(data.user.id);
         const redirectPath = getRedirectPath(permissions, returnUrl);
-        
-        return { 
-          success: true, 
+
+        // WYSHKIT 2026: Merge guest cart to user account on login
+        try {
+          const { mergeGuestCartToUser } = await import('@/lib/actions/draft-order');
+          await mergeGuestCartToUser();
+        } catch (mergeErr) {
+          logger.error('Failed to merge guest cart during OTP verification', mergeErr);
+          // Don't block login if merge fails
+        }
+
+        return {
+          success: true,
           redirectPath,
           hasMultipleOutlets: permissions.partnerIds.length > 1,
           partnerIds: permissions.partnerIds

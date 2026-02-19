@@ -36,7 +36,6 @@ export function BottomNav() {
       icon: Home,
       onClick: () => {
         router.push('/');
-        window.scrollTo({ top: 0, behavior: 'smooth' });
       },
       isActive: mounted && pathname === '/'
     },

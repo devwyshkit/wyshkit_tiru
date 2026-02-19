@@ -110,19 +110,22 @@ export async function createPaymentOrder(
                 selectedAddons: item.selectedAddons || []
             })),
             p_delivery_fee_override: deliveryFee,
+            p_address_id: payload.addressId,
             p_coupon_code: payload.appliedCoupon?.code || null,
             p_distance_km: distanceKm,
             p_use_wallet: payload.useWallet || false,
             p_user_id: user.id
         });
 
-        if (pricingError || (pricingData as any).error) {
-            return { error: (pricingData as any)?.error || 'Pricing verification failed', status: 400 };
+        const pricing = pricingData as { total: number; subtotal: number; discount?: number; delivery_fee?: number; gst?: number; wallet_deduction?: number; error?: string };
+
+        if (pricingError || pricing?.error) {
+            return { error: pricing?.error || 'Pricing verification failed', status: 400 };
         }
 
         // 3. SECURE VALIDATION
         // WYSHKIT 2026: Strict Total Sync (RPC handles wallet deduction now)
-        const serverAmount = Math.round((pricingData as any).total * 100);
+        const serverAmount = Math.round(pricing.total * 100);
         const clientAmount = Math.round(amount);
 
         if (Math.abs(serverAmount - clientAmount) > 100) {
@@ -260,7 +263,7 @@ export async function verifyPaymentSignature(
 
         // WYSHKIT 2026: Idempotency Check (Anti-Double-Ordering)
         // If a webhook (F5) already processed this payment, we just return the order ID.
-        const { data: existingOrder } = await (supabase as any)
+        const { data: existingOrder } = await supabase
             .from('orders')
             .select('id, order_number, has_personalization')
             .eq('razorpay_order_id', razorpayOrderId)

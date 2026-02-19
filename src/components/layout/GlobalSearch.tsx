@@ -8,12 +8,17 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { useSearch } from "@/hooks/useSearch";
 import type { Tables } from "@/lib/supabase/database.types";
+import { ActionSlider } from "@/components/ui/ActionSlider";
+import { triggerHaptic, HapticPattern } from '@/lib/utils/haptic';
 import { PartnerCard } from "@/components/customer/PartnerCard";
 
 export function GlobalSearch() {
   const router = useRouter();
   // WYSHKIT 2026: Use router navigation (replaces Zustand)
-  const goBack = () => router.back();
+  const goBack = () => {
+    triggerHaptic(HapticPattern.ACTION);
+    router.back();
+  };
   const [query, setQuery] = useState('');
   const [debouncedQuery, setDebouncedQuery] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
@@ -90,15 +95,19 @@ export function GlobalSearch() {
                 <p className="text-xs font-medium text-zinc-400 mb-3">Stores</p>
                 <div className="space-y-2">
                   {results.partners.map((partner) => (
-                    <PartnerCard
+                    <div
                       key={partner.id as any}
-                      id={partner.id as any}
-                      name={(partner.name as any) || 'Store'}
-                      city={(partner.city as any) || 'City'}
-                      imageUrl={partner.image_url ?? '/images/logo.png'}
-                      rating={partner.rating as any}
-                      variant="row"
-                    />
+                      onClick={() => triggerHaptic(HapticPattern.ACTION)}
+                    >
+                      <PartnerCard
+                        id={partner.id as any}
+                        name={(partner.name as any) || 'Store'}
+                        city={(partner.city as any) || 'City'}
+                        imageUrl={partner.image_url ?? '/images/logo.png'}
+                        rating={partner.rating as any}
+                        variant="row"
+                      />
+                    </div>
                   ))}
                 </div>
               </div>
@@ -112,14 +121,16 @@ export function GlobalSearch() {
                     <button
                       key={item.id as any}
                       onClick={() => {
+                        // WYSHKIT 2026: Momentum Haptic
+                        triggerHaptic(HapticPattern.ACTION);
+
                         // WYSHKIT 2026: Navigate to item via partner route
-                        // Try to get partnerId from item data, or fetch it
                         const partnerId = (item as any).partnerId || (item as any).partner_id;
                         if (partnerId) {
                           router.push(`/partner/${partnerId}?item=${item.id as any}`);
                         } else {
-                          // Fallback: navigate to search with item name
-                          router.push(`/search?q=${encodeURIComponent(item.name as any)}`);
+                          // No partner context — navigate to search with item ID for intent resolution
+                          router.push(`/search?q=${encodeURIComponent(item.name as any)}&item=${item.id as any}`);
                         }
                       }}
                       className="w-full flex items-center gap-3 p-3 bg-zinc-50 rounded-xl hover:bg-zinc-100 transition-colors text-left"

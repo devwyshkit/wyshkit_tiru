@@ -1,51 +1,65 @@
 'use client';
 
 import React from 'react';
-import { Clock, CheckCircle2, Package, Camera, FileText, Download, AlertCircle, Timer } from 'lucide-react';
+import { Clock, CheckCircle2, Package, Camera, FileText, Download, AlertCircle, Timer, Sparkles, Share2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { ORDER_STATUS } from '@/lib/types/order-status';
 import { generateEstimatePDF, generateTaxInvoicePDF } from '@/lib/services/pdf-service';
+import { HyperlocalTimer } from '@/components/ui/HyperlocalTimer';
+import { toast } from 'sonner';
+import { triggerHaptic, HapticPattern } from '@/lib/utils/haptic';
+import { PRICING } from '@/lib/constants/pricing';
 
 interface StatusCardProps {
     order: any;
 }
 
 export function StatusCard({ order }: StatusCardProps) {
-    const [timeLeft, setTimeLeft] = React.useState<string | null>(null);
+    // WYSHKIT 2026: The "Live Pulse" SLA Logic
+    const [deadline, setDeadline] = React.useState<string | null>(null);
 
-    // WYSHKIT 2026: The "Live Pulse" ETA Engine
     React.useEffect(() => {
         if (!order || order.status === ORDER_STATUS.DELIVERED || order.status === ORDER_STATUS.CANCELLED) {
-            setTimeLeft(null);
+            setDeadline(null);
             return;
         }
 
-        const calculateETA = () => {
-            const createdAt = new Date(order.created_at || Date.now()).getTime();
-            const now = Date.now();
-            const elapsedMins = Math.floor((now - createdAt) / 60000);
+        // If it has a specific deadline from DB, use it
+        if (order.design_deadline_at) {
+            setDeadline(order.design_deadline_at);
+            return;
+        }
 
-            // Swiggy 2026 SLA Logic:
-            // - Plain orders: ~30-45 mins total
-            // - Personalized: ~24h for design + 2h for production
-            const baseSLA = order.has_personalization ? 1440 : 45;
-            const remaining = Math.max(2, baseSLA - elapsedMins);
+        // Fallback to createdAt based SLA
+        const createdAt = new Date(order.created_at || Date.now()).getTime();
+        const baseSLA = order.has_personalization ? 120 : 30; // mins
+        setDeadline(new Date(createdAt + baseSLA * 60000).toISOString());
+    }, [order?.status, order?.created_at, order?.has_personalization, order?.design_deadline_at]);
 
-            if (order.has_personalization && order.status === ORDER_STATUS.CONFIRMED) {
-                return "Waiting for details";
+    const handleShare = async () => {
+        if (!navigator.share) {
+            // Copy to clipboard fallback
+            try {
+                await navigator.clipboard.writeText(window.location.href);
+                toast.success("Tracking link copied!");
+                triggerHaptic(HapticPattern.SUCCESS);
+            } catch (err) {
+                toast.error("Failed to copy link");
             }
+            return;
+        }
 
-            if (order.status === ORDER_STATUS.OUT_FOR_DELIVERY) {
-                return "Arriving in ~5 mins";
-            }
-
-            return `${remaining} min`;
-        };
-
-        setTimeLeft(calculateETA());
-        const timer = setInterval(() => setTimeLeft(calculateETA()), 30000);
-        return () => clearInterval(timer);
-    }, [order.status, order.created_at, order.has_personalization]);
+        try {
+            await navigator.share({
+                title: `Track my Wyshkit Order #${order.order_number}`,
+                text: `Check out the live progress of my gift!`,
+                url: window.location.href,
+            });
+            triggerHaptic(HapticPattern.SUCCESS);
+        } catch (err) {
+            // User cancelled
+        }
+    };
 
     const getStatusIcon = (status: string) => {
         switch (status) {
@@ -95,13 +109,14 @@ export function StatusCard({ order }: StatusCardProps) {
     return (
         <section className="bg-white rounded-3xl border border-zinc-100 p-6 shadow-sm overflow-hidden relative">
             {/* WYSHKIT 2026: Live Pulse Header */}
-            {timeLeft && (
+            {deadline && (
                 <div className="absolute top-0 right-0 px-4 py-2 bg-zinc-950 flex items-center gap-2 rounded-bl-2xl">
-                    <div className="relative flex size-1.5 items-center justify-center">
+                    <div className="relative flex size-2 items-center justify-center">
                         <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75"></span>
-                        <span className="relative inline-flex size-1.5 rounded-full bg-emerald-500"></span>
+                        <span className="absolute inline-flex h-2 w-2 animate-ping-slow rounded-full bg-emerald-400/30 opacity-40"></span>
+                        <span className="relative inline-flex size-1.5 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]"></span>
                     </div>
-                    <span className="text-[10px] font-black text-white uppercase tracking-widest">Live</span>
+                    <span className="text-[10px] font-black text-white uppercase tracking-widest">Live Pulse</span>
                 </div>
             )}
 
@@ -109,12 +124,11 @@ export function StatusCard({ order }: StatusCardProps) {
                 <div className={cn(
                     "size-14 rounded-2xl flex items-center justify-center shrink-0 relative transition-all duration-500",
                     order.status === ORDER_STATUS.PREVIEW_READY
-                        ? "bg-rose-50 text-[#D91B24]"
+                        ? "bg-rose-50 text-[var(--primary)]"
                         : order.status === ORDER_STATUS.DELIVERED ? "bg-emerald-50 text-emerald-600" : "bg-zinc-100 text-zinc-600",
-                    timeLeft && "scale-105 shadow-lg shadow-zinc-100"
                 )}>
                     {getStatusIcon(order.status)}
-                    {timeLeft && (
+                    {deadline && (
                         <div className="absolute -bottom-1 -right-1 size-5 bg-white rounded-full flex items-center justify-center shadow-sm border border-zinc-100">
                             <Timer className="size-3 text-zinc-950 animate-pulse" />
                         </div>
@@ -125,6 +139,26 @@ export function StatusCard({ order }: StatusCardProps) {
                         <h2 className="text-lg font-black text-zinc-900 uppercase tracking-tight leading-tight">
                             {getStatusText(order.status)}
                         </h2>
+                        {(() => {
+                            const pendingCount = (order.order_items || []).filter((item: any) => {
+                                if (!item.is_personalized) return false;
+
+                                // WYSHKIT 2026: Include all personalized items regardless of addon complexity
+                                // if they don't have details submitted yet.
+                                const s = (item.status || 'pending').toLowerCase();
+                                const blocked = ['submitted', 'details_received', 'preview_ready', 'approved', 'in_production', 'packed', 'shipped', 'delivered', 'cancelled'];
+                                return !blocked.includes(s) && !item.personalization_details;
+                            }).length;
+
+                            if (order.status === ORDER_STATUS.PLACED && pendingCount > 0) {
+                                return (
+                                    <span className="text-[9px] font-black bg-[var(--primary)] text-white px-2 py-0.5 rounded-full animate-pulse uppercase tracking-widest whitespace-nowrap">
+                                        Action Req: {pendingCount} {pendingCount === 1 ? 'Item' : 'Items'}
+                                    </span>
+                                );
+                            }
+                            return null;
+                        })()}
                     </div>
 
                     {order.status === ORDER_STATUS.CANCELLED && order.cancellation_reason ? (
@@ -135,12 +169,14 @@ export function StatusCard({ order }: StatusCardProps) {
                             </p>
                         </div>
                     ) : (
-                        <div className="flex flex-col gap-0.5 mt-1">
-                            <p className="text-xs font-medium text-zinc-500">{getNextStep(order.status, order.has_personalization)}</p>
-                            {timeLeft && (
-                                <p className="text-[11px] font-black text-emerald-600 uppercase tracking-wide flex items-center gap-1.5">
-                                    {timeLeft}
-                                </p>
+                        <div className="space-y-1.5 mt-1">
+                            <p className="text-xs font-bold text-zinc-900 leading-tight">{getNextStep(order.status, order.has_personalization)}</p>
+                            {deadline && (
+                                <HyperlocalTimer
+                                    deadline={deadline}
+                                    variant="minimal"
+                                    className="text-[11px] font-black"
+                                />
                             )}
                         </div>
                     )}
@@ -171,8 +207,7 @@ export function StatusCard({ order }: StatusCardProps) {
                             {(isActive || isCurrent) && (
                                 <div className={cn(
                                     "absolute inset-0 bg-zinc-900 transition-all duration-1000",
-                                    isCurrent && "animate-pulse shadow-[0_0_12px_rgba(0,0,0,0.2)]",
-                                    (isCurrent && timeLeft) && "bg-emerald-500"
+                                    isCurrent && "animate-pulse shadow-[0_0_12px_rgba(0,0,0,0.2)]"
                                 )} />
                             )}
                         </div>
@@ -196,8 +231,8 @@ export function StatusCard({ order }: StatusCardProps) {
                             totals: {
                                 itemTotal: Number(orderData.subtotal) || 0,
                                 deliveryFee: Number(orderData.delivery_fee) || 0,
-                                platformFee: 10,
-                                gstAmount: (Number(orderData.total) || 0) * 0.18,
+                                platformFee: PRICING.PLATFORM_FEE,
+                                gstAmount: Number(orderData.tax_amount) || 0,
                                 grandTotal: Number(orderData.total) || 0
                             }
                         });
@@ -222,8 +257,8 @@ export function StatusCard({ order }: StatusCardProps) {
                                 totals: {
                                     itemTotal: Number(orderData.subtotal) || 0,
                                     deliveryFee: Number(orderData.delivery_fee) || 0,
-                                    platformFee: 10,
-                                    gstAmount: (Number(orderData.total) || 0) * 0.18,
+                                    platformFee: PRICING.PLATFORM_FEE,
+                                    gstAmount: Number(orderData.tax_amount) || 0,
                                     grandTotal: Number(orderData.total) || 0
                                 }
                             });
@@ -234,6 +269,13 @@ export function StatusCard({ order }: StatusCardProps) {
                         Invoice
                     </button>
                 )}
+                <button
+                    onClick={handleShare}
+                    className="flex-1 h-11 bg-zinc-900 text-white rounded-xl flex items-center justify-center gap-2 text-[10px] font-black uppercase tracking-widest hover:scale-[1.02] active:scale-[0.98] transition-all shadow-lg shadow-zinc-200"
+                >
+                    <Share2 className="size-3.5" />
+                    Share Track
+                </button>
             </div>
         </section>
     );

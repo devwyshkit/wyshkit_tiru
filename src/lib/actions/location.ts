@@ -3,6 +3,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { cookies, headers } from 'next/headers'
 import { GoogleMapsService } from '@/lib/services/google-maps'
+import { cache } from 'react'
 
 export interface LocationData {
     name: string;
@@ -21,7 +22,7 @@ export interface LocationData {
  * - Authenticated users: Fetches default address from Supabase.
  * - Guest users: Checks cookies for ephemeral location.
  */
-export async function getServerLocation(): Promise<LocationData> {
+export const getServerLocation = cache(async function getServerLocation(): Promise<LocationData> {
     try {
         // 1. Check Edge-Injected Headers (Fastest Path - Swiggy 2026)
         const headerList = await headers()
@@ -49,18 +50,18 @@ export async function getServerLocation(): Promise<LocationData> {
                 .select('name, type, city, address_line1, pincode, is_default, latitude, longitude')
                 .eq('user_id', user.id)
                 .order('is_default', { ascending: false })
-                .limit(1) as any
+                .limit(1);
 
             if (addresses?.length) {
-                const addr = addresses[0]
-                const lat = addr.latitude != null ? parseFloat(addr.latitude) : undefined
-                const lng = addr.longitude != null ? parseFloat(addr.longitude) : undefined
+                const addr = addresses[0];
+                const lat = addr.latitude !== null ? Number(addr.latitude) : undefined;
+                const lng = addr.longitude !== null ? Number(addr.longitude) : undefined;
                 return {
                     name: addr.name || addr.type || 'Saved address',
                     address: addr.city || addr.address_line1 || '',
                     pincode: addr.pincode || '',
-                    ...(lat != null && lng != null && { lat, lng })
-                }
+                    ...(lat !== undefined && lng !== undefined && { lat, lng })
+                };
             }
         }
 
@@ -96,7 +97,7 @@ export async function getServerLocation(): Promise<LocationData> {
     } catch (error) {
         return { name: 'Select location', address: '', pincode: '' }
     }
-}
+});
 
 /** Set location cookies for guest/session (used by getServerLocation) */
 export async function setLocationCookies(lat: number, lng: number, name: string) {

@@ -1,6 +1,6 @@
 "use client";
 
-import { PhoneLogin } from "@/components/auth/PhoneLogin";
+import { AuthPageClient } from "@/components/auth/AuthPageClient";
 import { Store } from "lucide-react";
 import { useRouter } from "next/navigation";
 
@@ -19,11 +19,12 @@ export default function PartnerLoginPage() {
           <Store className="size-8" />
         </div>
 
-        <div className="w-full max-w-[320px]">
-          <PhoneLogin
+        <div className="w-full">
+          <AuthPageClient
             title="Partner login"
-            subtitle="Sign in to manage your store"
-            onSuccess={handleSuccess}
+            description="Sign in to manage your store"
+            onComplete={handleSuccess}
+            hideHeader={true}
           />
         </div>
       </div>

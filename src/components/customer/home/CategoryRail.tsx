@@ -28,7 +28,7 @@ export function CategoryRail({
 
   return (
     <section className="px-4 md:px-8 py-3">
-      <p className="text-xs font-semibold text-zinc-500 mb-2">What&apos;s on your mind?</p>
+      <p className="text-[10px] font-black text-zinc-600 uppercase tracking-widest mb-2 px-1 border-l-2 border-[var(--primary)]">What&apos;s on your mind?</p>
       <div className="flex gap-8 md:gap-10 overflow-x-auto no-scrollbar py-2 pb-1 -mx-4 px-5">
         <Link
           href="/"
@@ -43,12 +43,12 @@ export function CategoryRail({
           )}>
             <LayoutGrid className={cn(
               "size-6 transition-colors",
-              isAllSelected ? "text-zinc-900" : "text-zinc-400"
+              isAllSelected ? "text-zinc-900" : "text-zinc-500"
             )} />
           </div>
           <span className={cn(
             "text-[10px] md:text-[11px] font-bold tracking-tight text-center leading-tight transition-colors",
-            isAllSelected ? "text-zinc-900" : "text-zinc-600"
+            isAllSelected ? "text-zinc-900" : "text-zinc-500"
           )}>
             All
           </span>
@@ -80,7 +80,7 @@ export function CategoryRail({
               </div>
               <span className={cn(
                 "text-[10px] md:text-[11px] font-bold tracking-tight text-center leading-tight max-w-[64px] md:max-w-[80px] line-clamp-1 transition-colors",
-                isSelected ? "text-zinc-900" : "text-zinc-600"
+                isSelected ? "text-zinc-900" : "text-zinc-500"
               )}>
                 {cat.name}
               </span>

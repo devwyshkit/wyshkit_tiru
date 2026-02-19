@@ -3,18 +3,28 @@
 import { AuthPageClient } from "@/components/auth/AuthPageClient";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Suspense } from 'react';
+import { Suspense, useState, useCallback } from 'react';
 import { Loader2 } from 'lucide-react';
 import { ModalHeader } from "@/components/ui/ModalHeader";
 
 export function InterceptedAuthClient() {
     const router = useRouter();
+    const [open, setOpen] = useState(true);
+
+    const handleDismiss = useCallback(() => {
+        setOpen(false);
+        // WYSHKIT 2026: Delay back navigation to allow animation
+        setTimeout(() => {
+            router.back();
+        }, 200);
+    }, [router]);
+
     return (
         <Sheet
-            open={true}
-            onOpenChange={(open) => {
-                if (!open) {
-                    router.back();
+            open={open}
+            onOpenChange={(isOpen) => {
+                if (!isOpen) {
+                    handleDismiss();
                 }
             }}
         >
@@ -36,7 +46,7 @@ export function InterceptedAuthClient() {
                                 <Loader2 className="size-6 animate-spin text-zinc-400" />
                             </div>
                         }>
-                            <AuthContent onClose={() => router.back()} />
+                            <AuthContent onClose={handleDismiss} />
                         </Suspense>
                     </div>
                 </div>
@@ -58,8 +68,12 @@ function AuthContent({ onClose }: { onClose: () => void }) {
             hideHeader
             hideBack
             onComplete={() => {
+                // WYSHKIT 2026: Explicitly close sheet via callback before redirecting
                 onClose();
-                router.refresh(); // Ensure state updates
+                setTimeout(() => {
+                    router.push(returnUrl);
+                    router.refresh();
+                }, 300);
             }}
         />
     );

@@ -65,6 +65,7 @@ export interface PreviewSubmission {
   preview_url: string;
   status: 'pending' | 'approved' | 'change_requested';
   partner_notes: string | null;
+  submitted_at: string;
 }
 
 interface UseOrderRealtimeOptions {
@@ -99,7 +100,7 @@ export function useOrderRealtime({
   const fetchInitialData = useCallback(async (retryCount = 0) => {
     const supabase = createClient();
     const MAX_RETRIES = 5;
-    const RETRY_DELAY = 800;
+    const RETRY_DELAY = 150; // Swiggy 2026: Snappy polling for fresh orders
 
     try {
       if (retryCount > 0) setIsPolling(true);
@@ -150,6 +151,12 @@ export function useOrderRealtime({
     if (!orderId) return;
 
     fetchInitialData();
+
+    // WYSHKIT 2026: Reconnection Resilience
+    // When the shared pulse reconnects, force a full data pull to bridge the offline gap.
+    if (isConnected) {
+      fetchInitialData();
+    }
 
     // WYSHKIT 2026: Use a DEDICATED channel for this specific order.
     // This allows for proper cleanup on unmount without affecting other subscribers.

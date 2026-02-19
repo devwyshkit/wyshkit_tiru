@@ -21,15 +21,29 @@ interface CartSlotProps {
  */
 export function CartSlot({ initialHydratedItems = [] }: CartSlotProps) {
   const router = useRouter();
-  const { updateQuantity, removeFromDraftOrder } = useCart();
+  const { draftOrder, updateQuantity, removeFromDraftOrder } = useCart();
 
-  // Local state for optimistic updates if needed, but for now server-first
-  const displayItems = initialHydratedItems;
+  // WYSHKIT 2026: Live sync CartSlot
+  // We prefer live items from context if available, fallback to SSR items
+  const displayItems = useMemo(() => {
+    if (draftOrder.items.length > 0) {
+      return draftOrder.items.map((it) => ({
+        ...it,
+        name: it.itemName,
+        image: it.itemImage || '',
+        basePrice: it.basePrice || 0,
+        variantPrice: it.variantPrice || 0,
+        variantId: it.selectedVariantId,
+        personalizationPrice: it.personalizationPrice || 0
+      })) as unknown as HydratedDraftItem[];
+    }
+    return initialHydratedItems;
+  }, [draftOrder.items, initialHydratedItems]);
 
   const handleUpdateQuantity = async (itemId: string, variantId: string | null, quantity: number) => {
     try {
       await updateQuantity(itemId, variantId, quantity);
-      router.refresh();
+      // No router.refresh needed because useCart is reactive
     } catch (e) {
       toast.error("Failed to update quantity");
     }
@@ -38,7 +52,6 @@ export function CartSlot({ initialHydratedItems = [] }: CartSlotProps) {
   const handleRemoveItem = async (itemId: string, variantId: string | null) => {
     try {
       await removeFromDraftOrder(itemId, variantId);
-      router.refresh();
     } catch (e) {
       toast.error("Failed to remove item");
     }

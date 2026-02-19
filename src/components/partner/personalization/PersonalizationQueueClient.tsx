@@ -32,7 +32,7 @@ export function PersonalizationQueueClient({ initialOrders }: PersonalizationQue
 
   const waitingForInput = orders.filter(o => o.status === ORDER_STATUS.PLACED);
   const needsPreview = orders.filter(o =>
-    [ORDER_STATUS.DETAILS_RECEIVED, ORDER_STATUS.DETAILS_RECEIVED].includes(o.status as typeof ORDER_STATUS.DETAILS_RECEIVED)
+    [ORDER_STATUS.DETAILS_RECEIVED, ORDER_STATUS.IN_PRODUCTION].includes(o.status as typeof ORDER_STATUS.DETAILS_RECEIVED)
   );
   const revisionRequested = orders.filter(o => o.status === ORDER_STATUS.REVISION_REQUESTED);
   const awaitingApproval = orders.filter(o => o.status === ORDER_STATUS.PREVIEW_READY);
@@ -105,84 +105,123 @@ export function PersonalizationQueueClient({ initialOrders }: PersonalizationQue
     );
   };
 
-  const OrderQueueCard = ({ order, showUpload = false }: { order: PartnerOrder; showUpload?: boolean }) => (
-    <Card key={order.id}>
-      <CardContent className="p-4">
-        <div className="flex items-start justify-between">
-          <div className="flex-1">
-            <div className="flex items-center gap-2 mb-1">
-              <p className="text-sm font-semibold text-zinc-900">
-                #{order.order_number}
-              </p>
-              <Badge
-                variant="outline"
-                className={cn(
-                  'text-xs',
-                  order.status === ORDER_STATUS.REVISION_REQUESTED
-                    ? 'bg-orange-50 text-orange-700 border-orange-200'
-                    : order.status === ORDER_STATUS.PREVIEW_READY
-                      ? 'bg-blue-50 text-blue-700 border-blue-200'
-                      : 'bg-amber-50 text-amber-700 border-amber-200'
-                )}
-              >
-                {getOrderStatusDisplay(order.status)}
-              </Badge>
-            </div>
-            <div className="flex items-center gap-1.5 text-zinc-500">
-              <Clock className="size-3" />
-              <span className="text-xs">
-                {formatDistanceToNow(new Date(order.created_at!), { addSuffix: true })}
-              </span>
-            </div>
+  const OrderQueueCard = ({ order, showUpload = false }: { order: PartnerOrder; showUpload?: boolean }) => {
+    const [showHistory, setShowHistory] = useState(false);
+    // Note: order.previews is provided via realtime/initial state
+    const designHistory = (order as any).previews || [];
 
-            {order.order_items?.map((item) => (
-              <div key={item.id} className="mt-3 p-3 bg-zinc-50 rounded-xl border border-zinc-100">
-                <div className="flex items-center justify-between gap-2">
-                  <p className="text-sm font-medium text-zinc-900">
-                    {item.quantity}× {item.item_name}
-                  </p>
-                  {showUpload && item.status !== 'preview_ready' && (
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      className="h-8 text-[10px] font-bold uppercase tracking-wider text-blue-600 hover:text-blue-700 hover:bg-blue-50"
-                      onClick={() => handleUploadClick(order.id, item.id, order.order_number || '')}
-                    >
-                      <Upload className="size-3.5 mr-1" />
-                      Upload Preview
-                    </Button>
+    return (
+      <Card key={order.id}>
+        <CardContent className="p-4">
+          <div className="flex items-start justify-between">
+            <div className="flex-1">
+              <div className="flex items-center gap-2 mb-1">
+                <p className="text-sm font-semibold text-zinc-900">
+                  #{order.order_number}
+                </p>
+                <Badge
+                  variant="outline"
+                  className={cn(
+                    'text-xs',
+                    order.status === ORDER_STATUS.REVISION_REQUESTED
+                      ? 'bg-orange-50 text-orange-700 border-orange-200'
+                      : order.status === ORDER_STATUS.PREVIEW_READY
+                        ? 'bg-blue-50 text-blue-700 border-blue-200'
+                        : 'bg-amber-50 text-amber-700 border-amber-200'
                   )}
+                >
+                  {getOrderStatusDisplay(order.status)}
+                </Badge>
+              </div>
+              <div className="flex items-center gap-1.5 text-zinc-500">
+                <Clock className="size-3" />
+                <span className="text-xs">
+                  {formatDistanceToNow(new Date(order.created_at!), { addSuffix: true })}
+                </span>
+              </div>
+
+              {order.order_items?.map((item) => (
+                <div key={item.id} className="mt-3 p-3 bg-zinc-50 rounded-xl border border-zinc-100">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-sm font-medium text-zinc-900">
+                      {item.quantity}× {item.item_name}
+                    </p>
+                    {showUpload && item.status !== 'preview_ready' && (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-8 text-[10px] font-bold uppercase tracking-wider text-blue-600 hover:text-blue-700 hover:bg-blue-50"
+                        onClick={() => handleUploadClick(order.id, item.id, order.order_number || '')}
+                      >
+                        <Upload className="size-3.5 mr-1" />
+                        Upload Preview
+                      </Button>
+                    )}
+                    {item.status === 'preview_ready' && (
+                      <Badge variant="outline" className="bg-emerald-50 text-emerald-700 border-emerald-100 text-[10px]">
+                        Preview Sent
+                      </Badge>
+                    )}
+                  </div>
+
+                  {item.personalization_entry && renderPersonalizationDetails(item.personalization_entry)}
+                  {!item.personalization_entry && item.personalization_details && renderPersonalizationDetails(item.personalization_details)}
+
+                  {/* Show Item-Specific Preview if available */}
                   {item.status === 'preview_ready' && (
-                    <Badge variant="outline" className="bg-emerald-50 text-emerald-700 border-emerald-100 text-[10px]">
-                      Preview Sent
-                    </Badge>
+                    <div className="mt-2 flex items-center gap-2">
+                      <div className="size-10 relative rounded-md overflow-hidden bg-white border border-zinc-200">
+                        <Image
+                          src={order.latest_preview?.preview_url || ''}
+                          alt="Preview"
+                          fill
+                          className="object-cover"
+                        />
+                      </div>
+                      <span className="text-[10px] text-zinc-500 italic">Waiting for approval</span>
+                    </div>
                   )}
                 </div>
+              ))}
 
-                {item.personalization_entry && renderPersonalizationDetails(item.personalization_entry)}
-                {!item.personalization_entry && item.personalization_details && renderPersonalizationDetails(item.personalization_details)}
+              {/* WYSHKIT 2026: Absolute Transparency (Partner History) */}
+              {designHistory.length > 0 && (
+                <div className="mt-4 pt-4 border-t border-zinc-100">
+                  <button
+                    onClick={() => setShowHistory(!showHistory)}
+                    className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-zinc-400 hover:text-zinc-600 transition-colors"
+                  >
+                    <RotateCcw className={cn("size-3 transition-transform", showHistory && "rotate-180")} />
+                    Design History ({designHistory.length})
+                  </button>
 
-                {/* Show Item-Specific Preview if available */}
-                {item.status === 'preview_ready' && (
-                  <div className="mt-2 flex items-center gap-2">
-                    <div className="size-10 relative rounded-md overflow-hidden bg-white border border-zinc-200">
-                      <Image
-                        src={order.latest_preview?.preview_url || ''}
-                        alt="Preview"
-                        fill
-                        className="object-cover"
-                      />
+                  {showHistory && (
+                    <div className="mt-3 grid grid-cols-4 gap-2 animate-in fade-in slide-in-from-top-2 duration-300">
+                      {designHistory.map((p: any, i: number) => (
+                        <div key={p.id} className="relative aspect-square rounded-lg overflow-hidden border border-zinc-200 bg-white group/thumb">
+                          <Image
+                            src={p.preview_url}
+                            alt={`Preview ${i}`}
+                            fill
+                            className="object-cover opacity-60 hover:opacity-100 transition-opacity"
+                          />
+                          <div className="absolute inset-x-0 bottom-0 bg-white/90 backdrop-blur-md px-1.5 py-1 translate-y-full group-hover/thumb:translate-y-0 transition-transform">
+                            <span className="text-[7px] font-black uppercase text-zinc-900 block truncate leading-none">
+                              {p.submitted_at ? new Date(p.submitted_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Iter ' + i}
+                            </span>
+                          </div>
+                        </div>
+                      ))}
                     </div>
-                    <span className="text-[10px] text-zinc-500 italic">Waiting for approval</span>
-                  </div>
-                )}
-              </div>
-            ))}
+                  )}
+                </div>
+              )}
+            </div>
           </div>
-        </div>
-      </CardContent>
-    </Card>
-  );
+        </CardContent>
+      </Card>
+    );
+  }
 
   // WYSHKIT 2026: Realtime Updates
   useEffect(() => {

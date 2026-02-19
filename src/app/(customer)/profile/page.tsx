@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { getAddresses } from "@/lib/actions/addresses";
 import { redirect } from "next/navigation";
 import { Logo } from "@/components/ui/Logo";
 import { Button } from "@/components/ui/button";
@@ -32,6 +33,8 @@ export default async function ProfilePage() {
 
   const isAdmin = userData?.is_admin || (user.app_metadata as any)?.role === 'admin';
   const isPartner = !!partnerUser || (user.app_metadata as any)?.role === 'partner';
+
+  const { addresses = [] } = await getAddresses() || {};
 
   return (
     <div className="bg-zinc-50 py-4">

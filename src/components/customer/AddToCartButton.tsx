@@ -1,22 +1,12 @@
 'use client';
 
 import { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, usePathname } from 'next/navigation';
 import { Plus, Check, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useCart } from '@/components/customer/CartProvider';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
-import {
-    AlertDialog,
-    AlertDialogAction,
-    AlertDialogCancel,
-    AlertDialogContent,
-    AlertDialogDescription,
-    AlertDialogFooter,
-    AlertDialogHeader,
-    AlertDialogTitle,
-} from '@/components/ui/alert-dialog';
 import { triggerHaptic, HapticPattern } from '@/lib/utils/haptic';
 
 interface AddToCartButtonProps {
@@ -28,7 +18,7 @@ interface AddToCartButtonProps {
     partnerName?: string;
     isIdentityAvailable?: boolean;
     hasVariants?: boolean;
-    onPersonalizeClick?: (e: React.MouseEvent) => void;
+    stockQuantity?: number;
     className?: string;
 }
 
@@ -45,16 +35,15 @@ export function AddToCartButton({
     partnerName,
     isIdentityAvailable,
     hasVariants,
-    onPersonalizeClick,
+    stockQuantity,
     className,
 }: AddToCartButtonProps) {
     const router = useRouter();
+    const pathname = usePathname();
     const { addToDraftOrder, clearDraftOrder, isPending } = useCart();
 
     const [isAdding, setIsAdding] = useState(false);
     const [justAdded, setJustAdded] = useState(false);
-    const [showReplaceCartDialog, setShowReplaceCartDialog] = useState(false);
-    const [pendingAdd, setPendingAdd] = useState<{ x: number; y: number } | null>(null);
 
     const handleQuickAdd = async (e: React.MouseEvent) => {
         e.preventDefault();
@@ -65,10 +54,8 @@ export function AddToCartButton({
         // WYSHKIT 2026: If item needs selection (identity addition OR variants), navigate to store sheet
         if (isIdentityAvailable || hasVariants) {
             if (partnerId) {
-                // Swiggy Pattern: Intercepted by (.)item
-                router.push(`/partner/${partnerId}/item/${itemId}`, { scroll: false });
-            } else if (onPersonalizeClick) {
-                onPersonalizeClick(e);
+                // Swiggy Pattern: Portal Navigation
+                // Parallel routes handle background automatically.
             }
             return;
         }
@@ -92,14 +79,11 @@ export function AddToCartButton({
 
             const result = await addToDraftOrder(itemId, null, { enabled: false }, [], 1, optimisticData);
 
-            if ('code' in result && result.code === 'PARTNER_MISMATCH') {
+            if (result && (result as any).error === 'PARTNER_MISMATCH') {
                 clearTimeout(revertTimer);
                 setJustAdded(false);
-                triggerHaptic(HapticPattern.ERROR);
-                setPendingAdd(startCoords);
-                setShowReplaceCartDialog(true);
                 return;
-            } else if ('error' in result) {
+            } else if (result && 'error' in result) {
                 throw new Error(result.error);
             }
         } catch (error) {
@@ -112,64 +96,42 @@ export function AddToCartButton({
         }
     };
 
-    const handleReplaceCart = async () => {
-        setShowReplaceCartDialog(false);
-        setPendingAdd(null);
+    const isOutOfStock = typeof stockQuantity === 'number' && stockQuantity <= 0;
+    const isDisabled = isAdding || isPending || isOutOfStock;
 
-        await clearDraftOrder();
-
-        const optimisticData = { itemName, itemImage, unitPrice, partnerId, partnerName };
-        const result = await addToDraftOrder(itemId, null, { enabled: false }, [], 1, optimisticData);
-
-        if ('success' in result && result.success) {
-            triggerHaptic(HapticPattern.SUCCESS);
-            setJustAdded(true);
-            setTimeout(() => setJustAdded(false), 1500);
-        } else if ('error' in result) {
-            toast.error(result.error ?? 'Failed to add item');
-        }
-    };
+    if (isOutOfStock && !hasVariants) {
+        return (
+            <div className={cn(
+                "h-8 px-3 rounded-xl bg-zinc-50 border border-zinc-100 flex items-center justify-center",
+                className
+            )}>
+                <span className="text-[10px] font-black text-zinc-400 uppercase tracking-widest">Sold Out</span>
+            </div>
+        );
+    }
 
     return (
-        <>
-            <AlertDialog open={showReplaceCartDialog} onOpenChange={setShowReplaceCartDialog}>
-                <AlertDialogContent>
-                    <AlertDialogHeader>
-                        <AlertDialogTitle>Different store</AlertDialogTitle>
-                        <AlertDialogDescription>
-                            Your cart has items from another store. To add from this store, start a new cart. Your current cart will be cleared.
-                        </AlertDialogDescription>
-                    </AlertDialogHeader>
-                    <AlertDialogFooter>
-                        <AlertDialogCancel>Keep current cart</AlertDialogCancel>
-                        <AlertDialogAction onClick={handleReplaceCart}>
-                            Start new cart & add
-                        </AlertDialogAction>
-                    </AlertDialogFooter>
-                </AlertDialogContent>
-            </AlertDialog>
-            <Button
-                size="icon"
-                onClick={handleQuickAdd}
-                aria-label={`Add ${itemName} to cart`}
-                disabled={isAdding || isPending}
-                className={cn(
-                    "size-8 rounded-xl transition-all z-10",
-                    justAdded
-                        ? "bg-emerald-500 text-white hover:bg-emerald-600"
-                        : "bg-white text-zinc-900 hover:bg-zinc-100 shadow-sm border border-zinc-100",
-                    "active:scale-95",
-                    className
-                )}
-            >
-                {isAdding ? (
-                    <Loader2 className="size-4 animate-spin" />
-                ) : justAdded ? (
-                    <Check className="size-4" />
-                ) : (
-                    <Plus className="size-4" />
-                )}
-            </Button>
-        </>
+        <Button
+            size="icon"
+            onClick={handleQuickAdd}
+            aria-label={`Add ${itemName} to cart`}
+            disabled={isDisabled}
+            className={cn(
+                "size-8 rounded-xl transition-all z-10",
+                justAdded
+                    ? "bg-emerald-500 text-white hover:bg-emerald-600"
+                    : isOutOfStock ? "bg-zinc-100 text-zinc-400 cursor-not-allowed" : "bg-white text-zinc-900 hover:bg-zinc-100 shadow-sm border border-zinc-100",
+                "active:scale-95",
+                className
+            )}
+        >
+            {isAdding ? (
+                <Loader2 className="size-4 animate-spin" />
+            ) : justAdded ? (
+                <Check className="size-4" />
+            ) : (
+                <Plus className="size-4" />
+            )}
+        </Button>
     );
 }

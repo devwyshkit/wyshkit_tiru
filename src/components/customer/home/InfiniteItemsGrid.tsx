@@ -94,13 +94,16 @@ export function InfiniteItemsGrid({
             <div ref={loaderRef} className="col-span-full mt-16 flex justify-center py-8">
                 {isLoadingMore ? (
                     <div className="flex flex-col items-center gap-3">
-                        <Loader2 className="size-6 text-[#D91B24] animate-spin" />
+                        <Loader2 className="size-6 text-[var(--primary)] animate-spin" />
                         <p className="text-xs text-zinc-400">Loading more...</p>
                     </div>
                 ) : !hasMore && (items.length > 0 || startOffset > 0) ? (
                     <div className="flex flex-col items-center gap-3 opacity-30">
                         <Sparkles className="size-5 text-zinc-400" />
                         <p className="text-xs text-zinc-400">That's all for now</p>
+                        <div className="flex items-center gap-1 text-[10px] font-black text-zinc-400 uppercase tracking-tighter">
+                            <span>Certified Quality</span>
+                        </div>
                     </div>
                 ) : null}
             </div>

@@ -5,6 +5,8 @@ import { Star, MessageSquare, CheckCircle2, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { submitItemReview } from '@/lib/actions/item-actions';
 import { toast } from 'sonner';
+import { triggerHaptic, HapticPattern } from '@/lib/utils/haptic';
+import { ActionSlider } from '@/components/ui/ActionSlider';
 
 interface FeedbackStepProps {
     orderId: string;
@@ -18,25 +20,34 @@ export function FeedbackStep({ orderId, items, onComplete }: FeedbackStepProps) 
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [submitted, setSubmitted] = useState(false);
 
+    const handleRatingSelect = (s: number) => {
+        setRating(s);
+        triggerHaptic(HapticPattern.ACTION);
+    };
+
     const handleSubmit = async () => {
         if (rating === 0) {
             toast.error('Please select a rating');
-            return;
+            return { success: false };
         }
 
         setIsSubmitting(true);
         try {
-            // Logic: Rate each item in the order (Simplified for Swiggy 2026)
-            // In a real app, we might rate the partner separately.
-            // Here we rate the primary items.
-            const promises = items.map(item => submitItemReview(item.id, rating, comment));
-            await Promise.all(promises);
+            // WYSHKIT 2026: Rate the primary item to represent the order experience
+            // Swiggy Pattern: One experience, one rating.
+            const primaryItem = items[0];
+            if (primaryItem) {
+                await submitItemReview(primaryItem.id, rating, comment);
+            }
 
             setSubmitted(true);
+            triggerHaptic(HapticPattern.SUCCESS);
             toast.success('Thank you for your feedback!');
             if (onComplete) setTimeout(onComplete, 2000);
+            return { success: true };
         } catch (error) {
             toast.error('Failed to submit feedback');
+            return { success: false };
         } finally {
             setIsSubmitting(false);
         }
@@ -72,7 +83,7 @@ export function FeedbackStep({ orderId, items, onComplete }: FeedbackStepProps) 
                     {[1, 2, 3, 4, 5].map((s) => (
                         <button
                             key={s}
-                            onClick={() => setRating(s)}
+                            onClick={() => handleRatingSelect(s)}
                             className="p-1 active:scale-90 transition-transform"
                         >
                             <Star
@@ -95,23 +106,22 @@ export function FeedbackStep({ orderId, items, onComplete }: FeedbackStepProps) 
                         value={comment}
                         onChange={(e) => setComment(e.target.value)}
                         placeholder="Tell us what you liked or how we can improve..."
-                        className="w-full h-24 p-4 rounded-2xl bg-zinc-50 border border-zinc-100 text-sm focus:outline-none focus:ring-2 focus:ring-zinc-900 transition-all resize-none"
+                        className="w-full h-24 p-5 rounded-2xl bg-zinc-50 border border-zinc-100 text-sm focus:bg-white focus:border-zinc-900 transition-all outline-none resize-none placeholder:text-zinc-300 border shadow-none text-zinc-900 leading-relaxed"
                     />
                 </div>
 
-                {/* Submit Button */}
-                <button
-                    onClick={handleSubmit}
-                    disabled={isSubmitting || rating === 0}
-                    className={cn(
-                        "w-full h-14 rounded-2xl font-black uppercase tracking-widest text-sm transition-all flex items-center justify-center gap-2",
-                        rating > 0
-                            ? "bg-zinc-900 text-white shadow-lg active:scale-95"
-                            : "bg-zinc-100 text-zinc-400 cursor-not-allowed"
-                    )}
-                >
-                    {isSubmitting ? <Loader2 className="size-5 animate-spin" /> : 'Submit Feedback'}
-                </button>
+                {/* Submit Slider */}
+                <div className="pt-2">
+                    <ActionSlider
+                        onConfirm={handleSubmit}
+                        disabled={rating === 0}
+                        isLoading={isSubmitting}
+                        label="Slide to Rate"
+                        successLabel="Rated"
+                        variant="amber"
+                        className="bg-black text-white"
+                    />
+                </div>
             </div>
         </section>
     );

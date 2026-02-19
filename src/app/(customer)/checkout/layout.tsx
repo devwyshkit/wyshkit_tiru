@@ -2,7 +2,7 @@ import { Suspense } from "react";
 import Script from "next/script";
 import { CheckoutLayoutClient } from "@/components/customer/checkout/CheckoutLayoutClient";
 import { getCheckoutData } from "@/lib/actions/checkout";
-import { CheckoutErrorBoundaryWithRouter } from "@/components/error/CheckoutErrorBoundary";
+import { SurfaceErrorBoundaryWithRouter } from "@/components/error/SurfaceErrorBoundary";
 
 /**
  * WYSHKIT 2026: Checkout Layout
@@ -24,7 +24,7 @@ export default function CheckoutLayout({
   children: React.ReactNode;
 }) {
   return (
-    <CheckoutErrorBoundaryWithRouter>
+    <SurfaceErrorBoundaryWithRouter surfaceName="Checkout" showHomeButton>
       <div className="min-h-screen bg-white">
         <Script
           src="https://checkout.razorpay.com/v1/checkout.js"
@@ -36,7 +36,7 @@ export default function CheckoutLayout({
           </AsyncCheckoutContent>
         </Suspense>
       </div>
-    </CheckoutErrorBoundaryWithRouter>
+    </SurfaceErrorBoundaryWithRouter>
   );
 }
 

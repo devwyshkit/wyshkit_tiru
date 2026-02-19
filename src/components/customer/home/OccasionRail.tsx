@@ -4,6 +4,7 @@ import React from 'react';
 import Link from 'next/link';
 import { Cake, Heart, Gift, PartyPopper, Sparkles, Star } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { triggerHaptic, HapticPattern } from '@/lib/utils/haptic';
 
 const occasions = [
     {
@@ -36,7 +37,7 @@ const occasions = [
     },
     {
         name: 'Just Like That',
-        slug: 'gifts',
+        slug: 'cakes',
         icon: Gift,
         color: 'from-emerald-400 to-emerald-600',
         shadow: 'shadow-emerald-500/20'
@@ -51,8 +52,8 @@ export function OccasionRail() {
                     <h2 className="text-2xl md:text-3xl font-black text-zinc-950 uppercase tracking-tighter leading-none">
                         Shop by Occasion
                     </h2>
-                    <p className="text-[10px] font-black text-zinc-400 uppercase tracking-widest mt-2 px-1 border-l-2 border-[#D91B24]">
-                        Curated collections for your special moments
+                    <p className="text-[10px] font-black text-zinc-950 uppercase tracking-widest mt-2 px-1 border-l-2 border-[var(--primary)]">
+                        Curated for your special moments
                     </p>
                 </div>
             </div>
@@ -61,7 +62,8 @@ export function OccasionRail() {
                 {occasions.map((occ) => (
                     <Link
                         key={occ.slug}
-                        href={`/?category=${occ.slug}`}
+                        href={`/search?category=${occ.slug}`}
+                        onClick={() => triggerHaptic(HapticPattern.ACTION)}
                         className="group flex flex-col items-center gap-4 shrink-0"
                     >
                         <div className={cn(

@@ -50,12 +50,12 @@ export default function Error({
         </div>
 
         <div className="flex flex-col sm:flex-row items-center justify-center gap-4 pt-4">
-          <Button
-            onClick={reset}
-            className="h-12 bg-zinc-900 text-white px-8 rounded-lg font-black text-[11px] uppercase tracking-widest flex items-center gap-3"
+          <button
+            onClick={() => reset()}
+            className="px-8 h-12 bg-[var(--primary)] text-white font-black text-xs uppercase tracking-widest rounded-2xl active:scale-95 transition-all w-full md:w-auto"
           >
             <RefreshCcw className="size-4" /> Attempt Recovery
-          </Button>
+          </button>
           <Button
             variant="outline"
             onClick={() => router.push('/')}

@@ -37,13 +37,7 @@ export default function InterceptedOrderDetailsPage({
         </div>
         <div className="flex-1 overflow-y-auto relative outline-none">
           <div className="flex flex-col min-h-full">
-            <Suspense fallback={
-              <div className="flex items-center justify-center py-20">
-                <div className="text-sm text-zinc-500 font-bold uppercase tracking-widest animate-pulse">Tracking...</div>
-              </div>
-            }>
-              <OrderDetailsPageClient params={params} isSheet={true} />
-            </Suspense>
+            <OrderDetailsPageClient params={params} isSheet={true} />
           </div>
         </div>
       </SheetContent>

@@ -106,7 +106,11 @@ export function PreviewApproval({
                     <div className="bg-zinc-50 rounded-2xl p-4 border border-zinc-100 space-y-3">
                         <div className="flex justify-between items-center pb-2 border-b border-zinc-200/50">
                             <span className="text-xs font-bold text-zinc-900">Request Changes</span>
-                            <button onClick={() => setShowFeedback(false)} className="p-1 -mr-1 text-zinc-400 hover:text-zinc-600">
+                            <button
+                                onClick={() => setShowFeedback(false)}
+                                className="p-1 -mr-1 text-zinc-400 hover:text-zinc-600"
+                                aria-label="Close feedback"
+                            >
                                 <XCircle className="size-5" />
                             </button>
                         </div>

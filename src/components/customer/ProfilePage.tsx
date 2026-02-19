@@ -17,7 +17,8 @@ import {
   Briefcase,
   Plus,
   Loader2,
-  ChevronLeft
+  ChevronLeft,
+  Sparkles
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { OrderList } from '@/components/customer/orders/OrderList';
@@ -29,20 +30,18 @@ import type { Address } from '@/lib/types/address';
 type ProfileTab = 'account' | 'orders' | 'addresses' | 'settings';
 
 interface ProfileSurfaceProps {
-  // WYSHKIT 2026: Route-based navigation - accept tab/action from URL
-  initialTab?: ProfileTab;
-  initialAction?: string;
+  initialAddresses?: Address[];
 }
 
-export function ProfilePage({ initialTab: propTab, initialAction }: ProfileSurfaceProps = {}) {
+export function ProfilePage({ initialAddresses = [] }: ProfileSurfaceProps = {}) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { user, permissions, signOut } = useAuth();
 
 
   // WYSHKIT 2026: Route-based navigation - URL is source of truth
-  const activeTab = (searchParams.get('tab') as ProfileTab) || propTab || 'account';
-  const action = searchParams.get('action') || initialAction;
+  const activeTab = (searchParams.get('tab') as ProfileTab) || 'account';
+  const action = searchParams.get('action');
 
   // Derived state from URL
   const isAddingAddress = action === 'add';
@@ -62,15 +61,10 @@ export function ProfilePage({ initialTab: propTab, initialAction }: ProfileSurfa
     router.push(`/profile?${params.toString()}`);
   };
 
-  const [addresses, setAddresses] = useState<Address[]>([]);
+  const [addresses, setAddresses] = useState<Address[]>(initialAddresses);
   const [loadingAddresses, setLoadingAddresses] = useState(false);
   const [settingDefault, setSettingDefault] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (user && activeTab === 'addresses') {
-      loadAddresses();
-    }
-  }, [user, activeTab]);
 
   const loadAddresses = async () => {
     setLoadingAddresses(true);
@@ -218,20 +212,27 @@ export function ProfilePage({ initialTab: propTab, initialAction }: ProfileSurfa
 
             <section>
               <h3 className="text-[11px] font-bold text-zinc-400 uppercase tracking-[0.2em] mb-4">Quick Actions</h3>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-3 gap-3">
                 <button
                   onClick={() => setActiveTab('orders')}
                   className="p-4 bg-zinc-50 rounded-2xl flex flex-col items-center gap-2 border border-zinc-100 hover:bg-zinc-100 transition-colors text-zinc-900"
                 >
-                  <Package className="size-6" />
-                  <span className="text-xs font-bold uppercase tracking-wider">Past Orders</span>
+                  <Package className="size-5" />
+                  <span className="text-[10px] font-bold uppercase tracking-wider">Orders</span>
+                </button>
+                <button
+                  onClick={() => setActiveTab('orders')}
+                  className="p-4 bg-zinc-900 rounded-2xl flex flex-col items-center gap-2 border border-zinc-800 hover:bg-black transition-colors text-white shadow-lg shadow-zinc-200"
+                >
+                  <Sparkles className="size-5 text-amber-400" />
+                  <span className="text-[10px] font-bold uppercase tracking-wider">Briefs</span>
                 </button>
                 <button
                   onClick={() => setActiveTab('addresses')}
                   className="p-4 bg-zinc-50 rounded-2xl flex flex-col items-center gap-2 border border-zinc-100 hover:bg-zinc-100 transition-colors text-zinc-900"
                 >
-                  <MapPin className="size-6" />
-                  <span className="text-xs font-bold uppercase tracking-wider">Addresses</span>
+                  <MapPin className="size-5" />
+                  <span className="text-[10px] font-bold uppercase tracking-wider">Address</span>
                 </button>
               </div>
             </section>

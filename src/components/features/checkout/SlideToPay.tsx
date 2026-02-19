@@ -1,9 +1,11 @@
 'use client';
 
 import React, { useState, useRef, useEffect, useLayoutEffect, useCallback } from 'react';
-import { ChevronRight } from 'lucide-react';
+import { ChevronRight, ShieldCheck } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { triggerHaptic, HapticPattern } from '@/lib/utils/haptic';
+import { Button } from '@/components/ui/button';
+import { formatCurrency } from '@/lib/utils/pricing';
 
 function ShimmerHint({ threshold }: { threshold: number }) {
     return (
@@ -45,8 +47,13 @@ export function SlideToPay({
     const [dragX, setDragX] = useState(0);
     const [isDragging, setIsDragging] = useState(false);
     const [startX, setStartX] = useState(0);
+    const [isTouchDevice, setIsTouchDevice] = useState<boolean | null>(null); // null until hydrated — avoids desktop flash
     const constraintsRef = useRef<HTMLDivElement>(null);
     const handleRef = useRef<HTMLDivElement>(null);
+
+    useEffect(() => {
+        setIsTouchDevice('ontouchstart' in window || navigator.maxTouchPoints > 0);
+    }, []);
 
     // WYSHKIT 2026: Calculate dynamic threshold
     // Threshold is total width minus handle size minus padding
@@ -119,6 +126,27 @@ export function SlideToPay({
         );
     }
 
+    // WYSHKIT 2026: Desktop Integrity
+    // isTouchDevice=null (SSR) or false (desktop) → always show button, never the slide track
+    // This prevents the flash of "Slide to Pay" text on desktop before hydration
+    if (isTouchDevice === null || !isTouchDevice) {
+        return (
+            <Button
+                size="lg"
+                onClick={() => {
+                    setIsSuccess(true);
+                    triggerHaptic(HapticPattern.SUCCESS);
+                    onPay();
+                }}
+                className="w-full h-16 rounded-[24px] text-[13px] font-black uppercase tracking-[0.2em] shadow-xl shadow-red-500/10 gap-3 group overflow-hidden relative"
+            >
+                <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-1000" />
+                <ShieldCheck className="size-5" />
+                <span>Place Order · {formatCurrency(amount)}</span>
+            </Button>
+        );
+    }
+
     return (
         <div
             ref={constraintsRef}
@@ -134,31 +162,14 @@ export function SlideToPay({
             />
 
             {/* Static Text - Clickable on Desktop */}
-            <div
-                className="absolute inset-0 flex items-center justify-center cursor-pointer"
-                onClick={(e) => {
-                    // WYSHKIT 2026: Desktop "Click to Swipe" pattern
-                    // If user clicks the track (not the handle), verify immediately
-                    if (!isSuccess && !isProcessing) {
-                        const rect = e.currentTarget.getBoundingClientRect();
-                        const clickX = e.clientX - rect.left;
-                        // Only if clicking ahead of the handle
-                        if (clickX > handleSize) {
-                            setDragX(threshold);
-                            setIsSuccess(true);
-                            triggerHaptic(HapticPattern.SUCCESS);
-                            onPay();
-                        }
-                    }
-                }}
-            >
+            <div className="absolute inset-0 flex items-center justify-center">
                 <div
                     className="flex items-center gap-3 transition-opacity duration-150"
                     style={{ opacity: textOpacity }}
                 >
-                    <ChevronRight className="size-4 text-zinc-300 animate-pulse" />
-                    <span className="text-[11px] font-black uppercase tracking-[0.2em] text-zinc-400 select-none">
-                        Slide to Pay ₹{amount.toFixed(0)}
+                    <ChevronRight className="size-4 text-zinc-400 animate-pulse" />
+                    <span className="text-[11px] font-black uppercase tracking-[0.2em] text-zinc-500 select-none">
+                        Slide to Pay {formatCurrency(amount)}
                     </span>
                 </div>
             </div>

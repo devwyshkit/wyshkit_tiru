@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import Image from 'next/image';
-import { useMemo } from 'react';
+import { useMemo, useState, useEffect } from 'react';
 import { Sparkles, TrendingUp } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -27,7 +27,7 @@ function QuickAccessCard({ item, variant = 'default' }: QuickAccessCardProps) {
   // When no partner_id, /item/[id] does not exist; fallback to search.
   const href = useMemo(() => {
     if (!item.partner_id) return `/search?q=${encodeURIComponent(item.name || '')}`;
-    return `/partner/${item.partner_id}?item=${item.id}`;
+    return `/partner/${item.partner_id}/item/${item.id}`;
   }, [item.id, item.partner_id, item.name]);
 
   return (
@@ -59,8 +59,11 @@ function QuickAccessCard({ item, variant = 'default' }: QuickAccessCardProps) {
           </div>
         </div>
       </div>
+      <div className="absolute top-0 right-0 p-12 opacity-[0.07] pointer-events-none group-hover:scale-110 transition-transform duration-700">
+        <Sparkles className="size-48 text-[var(--primary)] rotate-12" />
+      </div>
       <div className="absolute top-3 left-3 px-2 py-1 bg-white/90 backdrop-blur rounded-lg flex items-center gap-1.5 shadow-sm">
-        <TrendingUp className="size-3 text-orange-600" />
+        <TrendingUp className="size-3 text-[var(--primary)]" />
         <span className="text-[10px] font-bold text-zinc-900">Trending</span>
       </div>
     </Link>
@@ -85,14 +88,18 @@ interface BentoBannerProps {
  * Data is fetched server-side and passed as props
  */
 /** WYSHKIT 2026: Time-based greeting (Swiggy pattern) */
-function useTimeContext(): string {
-  return useMemo(() => {
+function useTimeContext(): string | null {
+  const [greeting, setGreeting] = useState<string | null>(null);
+
+  useEffect(() => {
     const hour = new Date().getHours();
-    if (hour >= 5 && hour < 12) return 'Good morning';
-    if (hour >= 12 && hour < 17) return 'Good afternoon';
-    if (hour >= 17 && hour < 21) return 'Good evening';
-    return 'Late night';
+    if (hour >= 5 && hour < 12) setGreeting('Good morning');
+    else if (hour >= 12 && hour < 17) setGreeting('Good afternoon');
+    else if (hour >= 17 && hour < 21) setGreeting('Good evening');
+    else setGreeting('Late night');
   }, []);
+
+  return greeting;
 }
 
 export function BentoBanner({ items }: BentoBannerProps) {
@@ -105,12 +112,12 @@ export function BentoBanner({ items }: BentoBannerProps) {
   return (
     <section className="px-4 md:px-8 pt-2 pb-1">
       <div className="flex items-center gap-2 mb-3">
-        <div className="size-7 rounded-lg bg-amber-100 flex items-center justify-center">
-          <Sparkles className="size-3.5 text-amber-600" />
+        <div className="size-12 bg-[var(--primary)]/10 backdrop-blur-md rounded-2xl flex items-center justify-center border border-[var(--primary)]/20">
+          <Sparkles className="size-6 text-[var(--primary)]" />
         </div>
         <div>
-          <h2 className="text-sm font-bold text-zinc-900">Trending now · {timeContext}</h2>
-          <p className="text-[10px] text-zinc-400">Popular in your area</p>
+          <h2 className="text-sm font-bold text-zinc-900">Trending now {timeContext ? `· ${timeContext}` : ''}</h2>
+          <p className="text-[10px] font-black text-zinc-600 uppercase tracking-widest">Popular in your area</p>
         </div>
       </div>
 

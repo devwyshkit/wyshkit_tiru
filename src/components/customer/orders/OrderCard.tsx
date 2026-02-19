@@ -37,14 +37,14 @@ export function OrderCard({ order }: OrderCardProps) {
             <Package className="size-6 text-zinc-300" />
           )}
           {isActive && (
-            <div className="absolute top-1 right-1 size-2 bg-[#D91B24] rounded-full ring-2 ring-white animate-pulse" />
+            <div className="absolute top-1 right-1 size-2 bg-[var(--primary)] rounded-full ring-2 ring-white animate-pulse" />
           )}
         </div>
 
         <div className="flex-1 min-w-0">
           <div className="flex items-start justify-between">
             <div>
-              <h3 className="text-sm font-black text-zinc-900 truncate leading-tight group-hover:text-[#D91B24] transition-colors">
+              <h3 className="text-sm font-black text-zinc-900 truncate leading-tight group-hover:text-[var(--primary)] transition-colors">
                 {order.partnerName || "Wyshkit Partner"}
               </h3>
               <p className="text-[10px] font-bold text-zinc-400 mt-0.5 uppercase tracking-wider">
@@ -58,11 +58,28 @@ export function OrderCard({ order }: OrderCardProps) {
             <span className={cn(
               "px-2 py-0.5 rounded-md text-[9px] font-black uppercase tracking-wider",
               status === 'DELIVERED' ? "bg-emerald-50 text-emerald-600" :
-                isActive ? "bg-rose-50 text-[#D91B24]" :
+                isActive ? "bg-amber-50 text-[var(--primary)]" :
                   "bg-zinc-100 text-zinc-600"
             )}>
               {status.replace(/_/g, ' ')}
             </span>
+
+            {order.hasPersonalization && (
+              <span className={cn(
+                "px-2 py-0.5 rounded-md text-[9px] font-black uppercase tracking-wider flex items-center gap-1",
+                order.personalizationStatus === 'SUBMITTED' ? "bg-amber-50 text-amber-600" :
+                  order.personalizationStatus === 'APPROVED' ? "bg-emerald-50 text-emerald-600" :
+                    "bg-zinc-100 text-zinc-500"
+              )}>
+                <div className={cn(
+                  "size-1 rounded-full",
+                  order.personalizationStatus === 'SUBMITTED' ? "bg-amber-500 animate-pulse" :
+                    order.personalizationStatus === 'APPROVED' ? "bg-emerald-500" :
+                      "bg-zinc-400"
+                )} />
+                {order.personalizationStatus || 'Design Pending'}
+              </span>
+            )}
           </div>
 
           <p className="text-[11px] font-medium text-zinc-500 mt-3 line-clamp-1">
@@ -78,7 +95,7 @@ export function OrderCard({ order }: OrderCardProps) {
         <div className={cn(
           "px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest transition-all",
           isActive
-            ? "bg-[#D91B24] text-white shadow-lg shadow-rose-900/10 active:scale-95"
+            ? "bg-[var(--primary)] text-white shadow-lg shadow-amber-900/10 active:scale-95"
             : "bg-zinc-50 text-zinc-500 group-hover:bg-zinc-900 group-hover:text-white"
         )}>
           {isActive ? 'Track Order' : 'Details'}

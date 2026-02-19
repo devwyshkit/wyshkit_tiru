@@ -2,6 +2,7 @@ import { Suspense } from "react";
 import Script from "next/script";
 import { FloatingCartBar } from "@/components/customer/FloatingCartBar";
 import { OrderTrackingBar } from "@/components/customer/OrderTrackingBar";
+import { RouteSlotGuard } from "@/components/layout/RouteSlotGuard";
 import { CartProvider } from "@/components/customer/CartProvider";
 import { CartErrorBoundary } from "@/components/error/CartErrorBoundary";
 import { getCart } from "@/lib/actions/draft-order";
@@ -11,8 +12,6 @@ import { NavShell } from "@/components/layout/NavShell";
 /**
  * WYSHKIT 2026: Customer Layout - Singleton State & Route-Based Navigation
  */
-// export const dynamic = 'force-dynamic';
-// export const experimental_ppr = true;
 
 export default function CustomerLayout({
   children,
@@ -55,9 +54,10 @@ async function AsyncLayoutContent({
   return (
     <CartProvider key={cartIdentity} initialCart={initialCart} guestSessionId={guestSessionId}>
       <NavShell initialLocation={location}>
-        {children}
+        <RouteSlotGuard sheet={sheet}>
+          {children}
+        </RouteSlotGuard>
       </NavShell>
-      {sheet}
       <CartErrorBoundary>
         <FloatingCartBar />
       </CartErrorBoundary>

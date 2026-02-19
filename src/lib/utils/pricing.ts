@@ -14,16 +14,18 @@ export function getDeliveryFeeByDistance(distanceKm: number | null): number {
 
 /**
  * Calculates total price for a single line item including variants and addons.
+ * Wyshkit 2026: Inclusive GST Model. Price displayed = Price inclusive of GST.
  */
 export function calculateItemPrice(item: DraftLineItem): number {
     const unitPrice = Number(item.unitPrice) || 0;
     const quantity = Number(item.quantity) || 1;
 
-    // WYSHKIT 2026: Include addons in item level total (Crucial for optimistic UI)
+    // WYSHKIT 2026: Include addons in item level total
     const addonsTotal = (item.selectedAddons || []).reduce((sum, addon) => sum + (Number(addon.price) || 0), 0);
 
-    // WYSHKIT 2026: Include personalization fee in item level total
-    const personalizationFee = item.personalization?.enabled ? (Number(item.personalization.price) || 0) : 0;
+    // WYSHKIT 2026: Dynamic personalization fee calculation
+    // Prefer passed personalizationPrice if hydrated, otherwise fallback to item personalization price
+    const personalizationFee = item.personalizationPrice ?? (item.personalization?.enabled ? (Number(item.personalization.price) || 0) : 0);
 
     return (unitPrice + addonsTotal + personalizationFee) * quantity;
 }
@@ -36,19 +38,6 @@ export function calculateCartSubtotal(items: DraftLineItem[]): number {
 }
 
 /**
- * Legacy support for personalization pricing calculation.
- */
-export function calculatePersonalizationPrice(
-    personalization: any,
-    options: any[],
-    quantity: number
-): number {
-    if (!personalization?.enabled || !personalization?.optionId) return 0;
-    const option = options.find(o => o.id === personalization.optionId);
-    if (!option) return 0;
-    return (Number(option.price) || 0) * quantity;
-}
-/**
  * Formats a number as Indian Rupee (Swiggy 2026 Standard)
  */
 export function formatCurrency(amount: number): string {
@@ -59,3 +48,4 @@ export function formatCurrency(amount: number): string {
         maximumFractionDigits: 0,
     }).format(amount);
 }
+

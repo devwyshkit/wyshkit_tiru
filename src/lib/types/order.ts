@@ -25,6 +25,8 @@ export interface OrderListItem {
   itemCount?: number; // Optional: v_order_listings does not have this; OrderCard defaults to 1
   firstItemImage?: string | null;
   firstItemName?: string | null;
+  hasPersonalization?: boolean;
+  personalizationStatus?: string | null;
 }
 
 export interface OrderForPDF {

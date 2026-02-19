@@ -112,7 +112,7 @@ const generateBasePDF = (type: 'ESTIMATE' | 'TAX INVOICE', data: DocumentData) =
         `₹${item.total_price || item.totalPrice}`
     ]);
 
-    (doc as any).autoTable({
+    autoTable(doc, {
         startY: y,
         head: [['Description', 'HSN', 'Qty', 'Rate', 'Amount']],
         body: tableBody,

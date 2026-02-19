@@ -121,7 +121,7 @@ export function GstinIdentity({
                         <ShieldCheck className="size-4 text-zinc-900" />
                         <span className="text-[10px] font-bold uppercase tracking-widest text-zinc-900">Tax Identity (GSTIN)</span>
                     </div>
-                    <span className="text-[10px] font-medium text-emerald-600">Save 18%</span>
+                    <span className="text-[10px] font-medium text-emerald-600 uppercase tracking-tighter">Save with Tax Credit</span>
                 </div>
                 <div className="relative">
                     <input

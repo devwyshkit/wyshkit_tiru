@@ -2,6 +2,7 @@
 
 import { createClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
+import { logger } from '@/lib/logging/logger'
 
 function revalidateCartPaths() {
   revalidatePath('/')
@@ -75,7 +76,7 @@ export async function getCart(): Promise<GetCartResult> {
 
     // WYSHKIT 2026: Get Cart Identity (Auth or Session)
     const { data: { user } } = await supabase.auth.getUser()
-    const guestSessionId = !user ? await getGuestSessionId() : null
+    const guestSessionId = !user ? await getGuestSessionIdReadOnly() : null
 
     if (!user && !guestSessionId) {
       return {
@@ -118,7 +119,9 @@ export async function getCart(): Promise<GetCartResult> {
             name,
             latitude,
             longitude
-          )
+          ),
+          personalization_options (*),
+          item_addons (*)
         ),
         variants:variants (
           name,
@@ -163,18 +166,24 @@ export async function getCart(): Promise<GetCartResult> {
         itemImage: row?.items?.images?.[0] || '/placeholder.png',
         quantity: quantity,
         unitPrice: unitPrice,
-        totalPrice: (unitPrice + addonsPrice) * quantity + personalizationPrice,
+        totalPrice: (unitPrice + addonsPrice + personalizationPrice) * quantity,
         selectedVariantId: row.selected_variant_id,
         personalization: personalization,
         selectedAddons: selectedAddons,
         partnerName: row?.items?.partners?.name || 'Store',
         partnerId: row?.items?.partner_id,
+        partnerLatitude: row?.items?.partners?.latitude,
+        partnerLongitude: row?.items?.partners?.longitude,
         // Hydration
         basePrice: itemBasePrice,
         variantPrice: variantPrice,
         variantName: row?.variants?.name,
         personalizationPrice,
-        addonsPrice
+        addonsPrice,
+        personalization_options: row?.items?.personalization_options || [],
+        item_addons: row?.items?.item_addons || [],
+        is_personalized: !!row.personalization?.enabled,
+        personalization_details: row.personalization?.enabled ? row.personalization : null
       };
     });
 
@@ -282,7 +291,7 @@ export async function addToCart(payload: {
     if (cartError) throw cartError
 
     // WYSHKIT 2026: Require variant when item has variants (Swiggy-style)
-    const hasVariants = Array.isArray(variantRows) && variantRows.length > 0
+    let hasVariants = Array.isArray(variantRows) && variantRows.length > 0
     if (hasVariants && (variantId == null || variantId === '')) {
       return { error: 'Please select an option', code: 'VARIANT_REQUIRED' }
     }
@@ -291,7 +300,40 @@ export async function addToCart(payload: {
     // 0. STOCK CHECK (Swiggy 2026: Direct Inventory Check - Zero Reinvention)
     const normalizedVariantId = (variantId as string) || '';
 
-    // Fetch fresh stock directly
+    // 2. Duplicate Item Check (In-Memory)
+    const normalizedPersonalization = personalization || { enabled: false }
+    const personalizationKey = normalizedPersonalization.enabled
+      ? `enabled:${normalizedPersonalization.optionId || 'default'}`
+      : 'disabled'
+
+    // Addons Key Generation (Sorted IDs for consistency)
+    const addonsKey = (selectedAddons || [])
+      .map(a => a.id)
+      .sort()
+      .join(',');
+
+    const duplicateItem = cartItems?.find((ci) => {
+      if (ci.item_id !== itemId) return false
+
+      const ciVariant = ci.selected_variant_id || null
+      const payloadVariant = variantId || null
+      if (ciVariant !== payloadVariant) return false
+
+      const ciPers = ci.personalization || { enabled: false }
+      const ciKey = ciPers.enabled
+        ? `enabled:${ciPers.optionId || 'default'}`
+        : 'disabled'
+
+      const ciAddonsKey = (ci.selected_addons || [])
+        .map((a) => a.id)
+        .sort()
+        .join(',')
+
+      return ciKey === personalizationKey && ciAddonsKey === addonsKey
+    })
+
+    // 1. Stock Check (Zero Reinvention)
+    hasVariants = !!normalizedVariantId;
     const { data: stockData, error: stockError } = await supabase
       .from(hasVariants ? 'variants' : 'items')
       .select('stock_quantity')
@@ -303,11 +345,17 @@ export async function addToCart(payload: {
     }
 
     // Get active reservations for this item/variant (excluding current user's cart if any)
-    const { count: reservedCount } = await supabase
+    let reservationQuery = supabase
       .from('cart_reservations')
       .select('*', { count: 'exact', head: true })
       .eq(hasVariants ? 'variant_id' : 'item_id', hasVariants ? normalizedVariantId : itemId)
       .gt('expires_at', new Date().toISOString());
+
+    if (duplicateItem) {
+      reservationQuery = reservationQuery.neq('cart_item_id', duplicateItem.id);
+    }
+
+    const { count: reservedCount } = await reservationQuery;
 
     const availableStock = (stockData.stock_quantity || 0) - (reservedCount || 0);
 
@@ -354,37 +402,6 @@ export async function addToCart(payload: {
       }
     }
 
-    // 2. Duplicate Item Check (In-Memory)
-    const normalizedPersonalization = personalization || { enabled: false }
-    const personalizationKey = normalizedPersonalization.enabled
-      ? `enabled:${normalizedPersonalization.optionId || 'default'}`
-      : 'disabled'
-
-    // Addons Key Generation (Sorted IDs for consistency)
-    const addonsKey = (selectedAddons || [])
-      .map(a => a.id)
-      .sort()
-      .join(',');
-
-    const duplicateItem = cartItems?.find((ci) => {
-      if (ci.item_id !== itemId) return false
-
-      const ciVariant = ci.selected_variant_id || null
-      const payloadVariant = variantId || null
-      if (ciVariant !== payloadVariant) return false
-
-      const ciPers = ci.personalization || { enabled: false }
-      const ciKey = ciPers.enabled
-        ? `enabled:${ciPers.optionId || 'default'}`
-        : 'disabled'
-
-      const ciAddonsKey = (ci.selected_addons || [])
-        .map((a) => a.id)
-        .sort()
-        .join(',')
-
-      return ciKey === personalizationKey && ciAddonsKey === addonsKey
-    })
 
     // 3. Mutation (Insert or Update)
     // 3. Mutation (Insert or Update) with Reservation
@@ -462,6 +479,14 @@ export async function addToCart(payload: {
 
     revalidateCartPaths()
 
+    logger.info('Item added to cart', {
+      itemId,
+      partnerId: item.partner_id,
+      userId: user?.id,
+      sessionId: user ? null : sessionId,
+      quantity: newQty
+    })
+
     try {
       const cartResult = await getCart();
       return cartResult.cart ? { success: true, cart: cartResult.cart } : { success: true };
@@ -501,6 +526,7 @@ export async function updateCartItemQuantity(cartItemId: string, quantity: numbe
         .from('cart_reservations')
         .select('*', { count: 'exact', head: true })
         .eq(currentItem.selected_variant_id ? 'variant_id' : 'item_id', currentItem.selected_variant_id || currentItem.item_id)
+        .neq('cart_item_id', cartItemId)
         .gt('expires_at', new Date().toISOString());
 
       const availableStock = (stockData?.stock_quantity || 0) - (reservedCount || 0);
@@ -613,11 +639,11 @@ export async function getGuestCartDetails(payload: Array<{ itemId: string; quant
     const itemIds = payload.map(i => i.itemId)
 
     const query = supabase.from('v_item_listings')
-      .select('id, name, image, base_price, partner_name')
+      .select('id, name, image, base_price, partner_name, latitude, longitude')
       .eq('is_active', true)
       .in('id', itemIds);
 
-    const { data: itemsData, error } = await query as { data: { id: string, name: string, image: string, base_price: number, partner_name: string }[] | null, error: any };
+    const { data: itemsData, error } = await query as { data: { id: string, name: string, image: string, base_price: number, partner_name: string, latitude: number, longitude: number }[] | null, error: any };
 
     if (error) throw error
 
@@ -641,7 +667,7 @@ export async function getGuestCartDetails(payload: Array<{ itemId: string; quant
         itemImage: item.image,
         quantity: p.quantity,
         unitPrice: unitPrice,
-        totalPrice: (unitPrice + addonsPrice) * p.quantity + personalizationPrice,
+        totalPrice: (unitPrice + addonsPrice + personalizationPrice) * p.quantity,
         selectedVariantId: p.variantId ?? null,
         personalization: p.personalization,
         selectedAddons: selectedAddons,
@@ -649,7 +675,9 @@ export async function getGuestCartDetails(payload: Array<{ itemId: string; quant
         // Hydration
         basePrice: basePrice,
         addonsPrice: addonsPrice,
-        personalizationPrice: personalizationPrice
+        personalizationPrice: personalizationPrice,
+        partnerLatitude: item.latitude,
+        partnerLongitude: item.longitude
       } as DraftLineItem;
     }).filter((i): i is DraftLineItem => i !== null)
 
@@ -754,7 +782,7 @@ export async function getTransactionData(draftItems: Array<{ itemId: string; var
     // Using simple query structure for maximum reliability
     const [itemsRes, optionsRes, addonsRes] = await Promise.all([
       supabase.from('items')
-        .select('id, name, images, partner_id, base_price, variants(id, name, price)')
+        .select('id, name, images, partner_id, base_price, partners(latitude, longitude), variants(id, name, price)')
         .eq('is_active', true)
         .eq('approval_status', 'approved')
         .in('id', itemIds),
@@ -808,20 +836,6 @@ export async function getTransactionData(draftItems: Array<{ itemId: string; var
 
     const firstPartnerId = Array.from(partnerIds)[0];
 
-    // Upsells
-    const [upsellsRes] = await Promise.all([
-      firstPartnerId
-        ? supabase.from('items')
-          .select('id, name, base_price, images')
-          .eq('partner_id', firstPartnerId)
-          .eq('is_active', true)
-          .eq('approval_status', 'approved')
-          .limit(6)
-        : Promise.resolve({ data: [], error: null })
-    ]);
-
-    const { calculatePersonalizationPrice } = await import('@/lib/utils/pricing');
-
     const hydratedItems = draftItems.map((draftItem: any) => {
       // Find the corresponding item from the already hydrated cart if available
       // Actually, getTransactionData is used in checkout.ts which already has 'cart'
@@ -838,11 +852,7 @@ export async function getTransactionData(draftItems: Array<{ itemId: string; var
 
       // Calculate Legacy Pers Price (Fallback if not in draftItem)
       const personalizationOptions = optionsByItem.get(draftItem.itemId) || [];
-      const personalizationPrice = calculatePersonalizationPrice(
-        draftItem.personalization,
-        personalizationOptions,
-        draftItem.quantity || 1
-      );
+      const personalizationPrice = (draftItem.personalization?.price || 0);
 
       // Calculate Addons Price
       const addonsPrice = (draftItem.selectedAddons || []).reduce((sum: number, addon: any) => sum + (Number(addon.price) || 0), 0);
@@ -862,35 +872,78 @@ export async function getTransactionData(draftItems: Array<{ itemId: string; var
         personalizationPrice,
         addonsPrice,
         partnerId: itemData.partner_id ?? null,
+        partnerLatitude: (itemData as any).partners?.latitude ?? null,
+        partnerLongitude: (itemData as any).partners?.longitude ?? null,
         itemName: itemData.name,
         unitPrice,
         totalPrice
       };
     });
 
-    const { data: upsellsData } = upsellsRes;
-    const cartItemIds = new Set(draftItems.map(item => item.itemId));
-    const filteredUpsells = (upsellsData || []).filter(
-      (u: any) => !cartItemIds.has(u.id)
-    );
-    const upsellItems = filteredUpsells.map((u: any) => ({
-      id: u.id,
-      name: u.name,
-      price: u.base_price,
-      image_url: u.images?.[0] || '/images/logo.png'
-    }));
+    // Upsells removed for Swiggy 2026 Purification
 
     return {
       hydratedItems: hydratedItems as any,
-      upsellItems: upsellItems as any,
       error: null
     };
   } catch (error) {
     logError(error, 'GetTransactionData');
     return {
       hydratedItems: [],
-      upsellItems: [],
       error: 'Failed to fetch transaction data'
     };
+  }
+}
+
+/**
+ * WYSHKIT 2026: Update existing cart item (Section 4 Pattern 5)
+ * Handles "Portal Editing" flow from checkout.
+ */
+export async function updateCartItem(
+  cartItemId: string,
+  payload: {
+    variantId?: string | null;
+    personalization?: SelectedPersonalization;
+    selectedAddons?: SelectedAddon[];
+    quantity?: number;
+  }
+) {
+  try {
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+
+    // Authorization check
+    let query = supabase.from('cart_items').select('id').eq('id', cartItemId);
+    if (user) query = query.eq('user_id', user.id);
+    else {
+      const sessionId = await getGuestSessionIdReadOnly();
+      if (!sessionId) return { error: 'No session found' };
+      query = query.eq('session_id', sessionId);
+    }
+
+    const { data: existing, error: authError } = await query.maybeSingle();
+    if (authError || !existing) return { error: 'Item not found or unauthorized' };
+
+    const { variantId, personalization, selectedAddons, quantity } = payload;
+
+    // Update mutation
+    const { error: updateError } = await supabase
+      .from('cart_items')
+      .update({
+        selected_variant_id: variantId,
+        personalization: (personalization || { enabled: false }) as any,
+        selected_addons: (selectedAddons || []) as any,
+        quantity: quantity || 1,
+        updated_at: new Date().toISOString()
+      } as any)
+      .eq('id', cartItemId);
+
+    if (updateError) throw updateError;
+
+    revalidateCartPaths();
+    return { success: true };
+  } catch (err) {
+    logError(err, 'UpdateCartItem');
+    return { error: 'Failed to update item' };
   }
 }

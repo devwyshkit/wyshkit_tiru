@@ -2,6 +2,7 @@
 
 import React from 'react';
 import { cn } from '@/lib/utils';
+import Link from 'next/link';
 
 interface ComplianceFooterProps {
     className?: string;
@@ -51,9 +52,9 @@ export function ComplianceFooter({ className }: ComplianceFooterProps) {
                         <p className="text-xs text-zinc-600">Bangalore, Karnataka, India</p>
                     </div>
                     <div className="flex flex-wrap gap-x-6 gap-y-2">
-                        <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Privacy Policy</span>
-                        <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Terms of Service</span>
-                        <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Return Policy</span>
+                        <Link href="/legal/privacy" className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest hover:text-zinc-600 transition-colors">Privacy Policy</Link>
+                        <Link href="/legal/terms" className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest hover:text-zinc-600 transition-colors">Terms of Service</Link>
+                        <Link href="/legal/returns" className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest hover:text-zinc-600 transition-colors">Return Policy</Link>
                     </div>
                 </div>
             </div>

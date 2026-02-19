@@ -32,6 +32,8 @@ export default async function OrdersPage() {
         itemCount: row.items?.length || 1,
         firstItemImage: row.partner_image ?? null,
         firstItemName: row.items?.map((it: any) => it.item_name || it.itemName).join(', ') || null,
+        hasPersonalization: row.has_personalization || false,
+        personalizationStatus: row.personalization_status || null,
     }));
 
     return (

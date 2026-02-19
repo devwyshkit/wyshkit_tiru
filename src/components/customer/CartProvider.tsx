@@ -7,6 +7,17 @@ import * as draftOrderActions from "@/lib/actions/draft-order";
 import { createClient } from "@/lib/supabase/client";
 import { logger } from "@/lib/logging/logger";
 import { calculateItemPrice } from "@/lib/utils/pricing";
+import {
+    AlertDialog,
+    AlertDialogAction,
+    AlertDialogCancel,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { triggerHaptic, HapticPattern } from "@/lib/utils/haptic";
 
 interface CartContextType {
     draftOrder: Cart;
@@ -42,6 +53,7 @@ export function useCart() {
  * - Shared state across Home, Product, and Checkout screens
  * - Eliminates 'disconnect feel' by ensuring all UI segments update simultaneously
  * - Handles optimistic updates and server synchronization
+ * - Resilient to network failures with exponential backoff
  */
 export function CartProvider({
     children,
@@ -58,12 +70,22 @@ export function CartProvider({
     const [loading, setLoading] = useState(!initialCart);
     const [isPending, startTransition] = useTransition();
 
-    // WYSHKIT 2026: Optimistic cart updates (Section 3 Pattern 3)
+    // WYSHKIT 2026: Global Replace Cart Dialog state
+    const [showReplaceCartDialog, setShowReplaceCartDialog] = useState(false);
+    const [pendingItem, setPendingItem] = useState<{
+        itemId: string;
+        variantId: string | null;
+        personalization: SelectedPersonalization;
+        selectedAddons?: any[];
+        quantity: number;
+        optimisticData?: any;
+    } | null>(null);
+
+    // WYSHKIT 2026: Optimistic cart updates
     const [optimisticCart, addOptimisticCart] = useOptimistic(
         draftOrder,
         (state: Cart, newItem: { itemId: string; variantId: string | null; personalization: SelectedPersonalization; selectedAddons?: any[]; quantity: number; itemName?: string; itemImage?: string; unitPrice?: number; partnerId?: string; partnerName?: string }) => {
 
-            // Generate keys for robust matching
             const newItemAddonsKey = (newItem.selectedAddons || []).map(a => a.id).sort().join(',');
 
             const existingItemIndex = state.items.findIndex(
@@ -94,7 +116,7 @@ export function CartProvider({
                     itemImage: newItem.itemImage || '/images/logo.png',
                     quantity: newItem.quantity,
                     unitPrice: newItem.unitPrice || 0,
-                    totalPrice: 0, // Will be calculated below
+                    totalPrice: 0,
                     selectedVariantId: newItem.variantId,
                     personalization: newItem.personalization,
                     selectedAddons: newItem.selectedAddons,
@@ -113,46 +135,60 @@ export function CartProvider({
             const newItemCount = newItems.reduce((sum, i) => sum + i.quantity, 0);
             const newSubtotal = newItems.reduce((sum, i) => sum + i.totalPrice, 0);
 
-            // WYSHKIT 2026: Preserve partnerId in optimistic updates
-            const newPartnerId = newItem.partnerId || state.partnerId;
-
             return {
                 ...state,
                 items: newItems,
                 itemCount: newItemCount,
                 subtotal: newSubtotal,
                 total: newSubtotal,
-                partnerId: newPartnerId,
+                partnerId: newItem.partnerId || state.partnerId,
             };
         }
     );
 
-    const fetchDraftOrder = async (): Promise<Cart | null> => {
-        try {
-            const result = await draftOrderActions.getCart();
-            const cart = result.error ? { items: [], partnerId: null, subtotal: 0, total: 0, itemCount: 0 } : result.cart ?? { items: [], partnerId: null, subtotal: 0, total: 0, itemCount: 0 };
-            startTransition(() => setDraftOrder(cart));
-            return result.cart ?? null;
-        } catch {
-            startTransition(() => setDraftOrder({ items: [], partnerId: null, subtotal: 0, total: 0, itemCount: 0 }));
-            return null;
-        } finally {
-            setLoading(false);
-        }
-    };
-
-    // WYSHKIT 2026: Removed initial fetch useEffect. 
-    // Now hydrated via Page Server Component to prevent waterfalls.
-
-
     // WYSHKIT 2026: Anti-Zombie Mechanism (Mutation Dominance)
-    // Track the time of the last user action and the ID of the last mutation
     const lastActionTimeRef = React.useRef<number>(0);
     const isMutatingRef = React.useRef<boolean>(false);
 
-    // WYSHKIT 2026: Realtime Sync (Section 4 Pattern 4)
-    // Supabase is the Single Source of Truth (SSOT)
-    // Filter by user_id (logged-in) or session_id (guest) so we never listen to all users' carts.
+    /**
+     * WYSHKIT 2026: Resilient Cart Hydration
+     * Implementation of Section 4 Pattern 4 (Network Resilience)
+     */
+    const fetchDraftOrder = async (retries = 0): Promise<Cart | null> => {
+        setLoading(true);
+        const maxRetries = 5;
+        const baseDelay = 1000;
+
+        try {
+            const result = await draftOrderActions.getCart();
+            const cart = result.cart ?? { items: [], partnerId: null, subtotal: 0, total: 0, itemCount: 0 };
+
+            startTransition(() => {
+                setDraftOrder(cart);
+            });
+            setLoading(false);
+            return cart;
+        } catch (error) {
+            logger.error('Failed to fetch cart', error as Error);
+            if (retries < maxRetries) {
+                const delay = baseDelay * Math.pow(2, retries) + Math.random() * 1000;
+                logger.warn(`Retrying cart hydration in ${delay}ms...`);
+                await new Promise(resolve => setTimeout(resolve, delay));
+                return fetchDraftOrder(retries + 1);
+            }
+            setLoading(false);
+            return null;
+        }
+    };
+
+    // Initial fetch
+    useEffect(() => {
+        if (!authLoading) {
+            fetchDraftOrder();
+        }
+    }, [authLoading]);
+
+    // Realtime Sync
     useEffect(() => {
         if (authLoading) return;
 
@@ -196,7 +232,7 @@ export function CartProvider({
         optimisticData?: { itemName?: string; itemImage?: string; unitPrice?: number; partnerId?: string; partnerName?: string }
     ) => {
         lastActionTimeRef.current = Date.now();
-        isMutatingRef.current = true; // WYSHKIT 2026: Lock realtime
+        isMutatingRef.current = true;
 
         if (optimisticData) {
             startTransition(() => {
@@ -204,7 +240,7 @@ export function CartProvider({
                     itemId,
                     variantId,
                     personalization,
-                    selectedAddons, // Add this
+                    selectedAddons,
                     quantity,
                     ...optimisticData,
                 });
@@ -212,16 +248,59 @@ export function CartProvider({
         }
 
         try {
-            const result = await draftOrderActions.addToCart({ itemId, variantId, personalization, selectedAddons, quantity });
-            const cart = (result as { cart?: Cart })?.cart;
+            let result;
+            // @ts-ignore
+            const updateItemId = (optimisticData as any)?.updateItemId;
+
+            if (updateItemId) {
+                result = await draftOrderActions.updateCartItem(updateItemId, {
+                    variantId,
+                    personalization,
+                    selectedAddons,
+                    quantity
+                });
+            } else {
+                result = await draftOrderActions.addToCart({ itemId, variantId, personalization, selectedAddons, quantity });
+            }
+
+            if (result && (result as any).error === 'PARTNER_MISMATCH') {
+                triggerHaptic(HapticPattern.ERROR);
+                setPendingItem({ itemId, variantId, personalization, selectedAddons, quantity, optimisticData });
+                setShowReplaceCartDialog(true);
+                return result;
+            }
+
+            const cart = (result as { cart?: Cart; success?: boolean })?.cart;
             if (cart && !('error' in result)) {
                 startTransition(() => setDraftOrder(cart));
-            } else if (!('code' in result)) {
+            } else {
                 await fetchDraftOrder();
             }
             return result;
         } finally {
-            isMutatingRef.current = false; // Unlock
+            isMutatingRef.current = false;
+        }
+    };
+
+    const handleReplaceCart = async () => {
+        if (!pendingItem) return;
+
+        triggerHaptic(HapticPattern.ACTION);
+        setShowReplaceCartDialog(false);
+
+        try {
+            await clearDraftOrder();
+            await addToDraftOrder(
+                pendingItem.itemId,
+                pendingItem.variantId,
+                pendingItem.personalization,
+                pendingItem.selectedAddons,
+                pendingItem.quantity,
+                pendingItem.optimisticData
+            );
+            setPendingItem(null);
+        } catch (error) {
+            logger.error('Failed to replace cart', error as Error);
         }
     };
 
@@ -288,8 +367,6 @@ export function CartProvider({
     const clearDraftOrder = async () => {
         lastActionTimeRef.current = Date.now();
         isMutatingRef.current = true;
-
-        // WYSHKIT 2026: Synchronous clear to prevent "Ghost Cart" during route transitions
         setDraftOrder({ items: [], partnerId: null, subtotal: 0, total: 0, itemCount: 0 });
 
         startTransition(async () => {
@@ -297,22 +374,14 @@ export function CartProvider({
                 await draftOrderActions.clearDraftOrder();
             } catch (err) {
                 logger.error('CartProvider clear failed', err as Error);
-                // No need to reset state here as we already cleared it synchronously
             } finally {
                 isMutatingRef.current = false;
             }
         });
     };
 
-    // WYSHKIT 2026: One source of truth - use optimistic when it has more items (recent add)
-    // Otherwise use server state (authoritative)
-    // WYSHKIT 2026: Single Source of Truth
-    // useOptimistic automatically handles the rollback/sync.
-    // We should always render the optimistic state to prevent jumpiness.
-    const displayCart = optimisticCart;
-
     const value = {
-        draftOrder: displayCart,
+        draftOrder: optimisticCart,
         loading,
         isPending,
         isGuest: !user,
@@ -323,5 +392,30 @@ export function CartProvider({
         refreshDraftOrder: fetchDraftOrder,
     };
 
-    return <CartContext.Provider value={value}>{children}</CartContext.Provider>;
+    return (
+        <CartContext.Provider value={value}>
+            {children}
+            <AlertDialog open={showReplaceCartDialog} onOpenChange={setShowReplaceCartDialog}>
+                <AlertDialogContent className="rounded-[32px] border-none shadow-2xl bg-white/95 backdrop-blur-xl">
+                    <AlertDialogHeader>
+                        <AlertDialogTitle className="text-xl font-black text-zinc-950 tracking-tight">Replace cart?</AlertDialogTitle>
+                        <AlertDialogDescription className="text-sm font-medium text-zinc-600 leading-relaxed">
+                            Your cart contains items from a different store. Adding this item will clear your current cart.
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter className="flex-row gap-2 mt-4">
+                        <AlertDialogCancel className="flex-1 rounded-2xl border-zinc-100 font-bold text-zinc-500 hover:bg-zinc-50">
+                            Cancel
+                        </AlertDialogCancel>
+                        <AlertDialogAction
+                            onClick={handleReplaceCart}
+                            className="flex-1 rounded-2xl bg-[var(--primary)] hover:bg-[var(--primary)]/90 text-white font-bold"
+                        >
+                            Replace
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
+        </CartContext.Provider>
+    );
 }

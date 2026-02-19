@@ -39,7 +39,7 @@ export function TopHeader({ initialLocation }: TopHeaderProps) {
       // In 2026, we prefer to reload the page to trigger a fresh server render
       // with the new location context (stateless resilience)
       if (typeof window !== 'undefined') {
-        window.location.reload();
+        router.refresh();
       }
     };
     window.addEventListener('locationUpdate', handleLocationUpdate);

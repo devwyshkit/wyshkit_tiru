@@ -3,17 +3,22 @@
 import React, { useState, useEffect } from 'react';
 import {
   MapPin,
-  Check,
+  Search,
+  Navigation,
+  History,
+  Star,
   Home,
   Briefcase,
   Plus,
-  Loader2,
   Locate,
   MoreVertical,
+  Check,
+  X,
+  Loader2,
+  ArrowLeft,
+  MapPinned,
   Pencil,
-  Trash2,
-  Search,
-  X
+  Trash2
 } from 'lucide-react';
 import { useRouter, usePathname } from 'next/navigation';
 import { cn } from '@/lib/utils';
@@ -171,9 +176,9 @@ export function LocationContent({ onSelect }: { onSelect?: () => void }) {
         <div className="relative group">
           <div className="absolute left-4 top-1/2 -translate-y-1/2">
             {searching ? (
-              <Loader2 className="size-4 animate-spin text-orange-600" />
+              <Loader2 className="size-4 animate-spin text-[#D91B24]" />
             ) : (
-              <Search className="size-4 text-zinc-400 group-focus-within:text-orange-600 transition-colors" />
+              <Search className="size-4 text-zinc-400 group-focus-within:text-[#D91B24] transition-colors" />
             )}
           </div>
           <input
@@ -181,7 +186,7 @@ export function LocationContent({ onSelect }: { onSelect?: () => void }) {
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Search for area, street name..."
-            className="w-full bg-zinc-50 border-none rounded-2xl py-3.5 pl-11 pr-11 text-sm font-semibold placeholder:text-zinc-400 focus:ring-2 focus:ring-orange-600/10 transition-all outline-none"
+            className="w-full bg-zinc-50 border-none rounded-2xl py-3.5 pl-11 pr-11 text-sm font-semibold placeholder:text-zinc-400 focus:ring-2 focus:ring-[#D91B24]/10 transition-all outline-none"
           />
           {query && (
             <button
@@ -203,14 +208,14 @@ export function LocationContent({ onSelect }: { onSelect?: () => void }) {
                 onClick={() => handleSelectPlace(result.place_id)}
                 className="w-full flex items-start gap-4 p-4 rounded-2xl hover:bg-zinc-50 transition-all text-left group"
               >
-                <div className="size-10 rounded-xl bg-zinc-100 flex items-center justify-center shrink-0 group-hover:bg-orange-50 transition-colors">
-                  <MapPin className="size-4 text-zinc-400 group-hover:text-orange-600" />
+                <div className="size-10 rounded-xl bg-zinc-100 flex items-center justify-center shrink-0 group-hover:bg-rose-50 transition-colors">
+                  <MapPin className="size-4 text-zinc-400 group-hover:text-[#D91B24]" />
                 </div>
                 <div className="flex flex-col min-w-0 flex-1 pt-0.5">
                   <span className="text-sm font-bold text-zinc-900 truncate">
                     {result.structured_formatting.main_text}
                   </span>
-                  <span className="text-xs text-zinc-500 truncate mt-0.5">
+                  <span className="text-xs text-zinc-600 truncate mt-0.5">
                     {result.structured_formatting.secondary_text}
                   </span>
                 </div>
@@ -230,18 +235,18 @@ export function LocationContent({ onSelect }: { onSelect?: () => void }) {
                 disabled={usingGeolocation}
                 className="w-full flex items-center gap-4 p-4 rounded-2xl border border-zinc-100 hover:bg-zinc-50 hover:border-zinc-200 transition-all text-left group"
               >
-                <div className="size-10 rounded-xl bg-orange-50 flex items-center justify-center shrink-0 border border-orange-100/50 group-hover:bg-orange-100 transition-colors">
+                <div className="size-10 rounded-xl bg-rose-50 flex items-center justify-center shrink-0 border border-rose-100/50 group-hover:bg-rose-100 transition-colors">
                   {usingGeolocation ? (
-                    <Loader2 className="size-4 animate-spin text-orange-600" />
+                    <Loader2 className="size-4 animate-spin text-[#D91B24]" />
                   ) : (
-                    <Locate className="size-4 text-orange-600" />
+                    <Locate className="size-4 text-[#D91B24]" />
                   )}
                 </div>
                 <div className="flex flex-col">
                   <span className="text-sm font-bold text-zinc-900">
                     {usingGeolocation ? 'Pinpointing location…' : 'Use current location'}
                   </span>
-                  <span className="text-[10px] font-black text-orange-600 uppercase tracking-widest mt-0.5 leading-none">Using GPS</span>
+                  <span className="text-[10px] font-black text-[#D91B24] uppercase tracking-widest mt-0.5 leading-none">Using GPS</span>
                 </div>
               </button>
             )}
@@ -249,7 +254,7 @@ export function LocationContent({ onSelect }: { onSelect?: () => void }) {
             {/* Saved Addresses Section */}
             {user && addresses.length > 0 && (
               <div className="space-y-4">
-                <p className="text-[11px] font-black text-zinc-400 uppercase tracking-widest px-1">Saved addresses</p>
+                <p className="text-[11px] font-black text-zinc-600 uppercase tracking-widest px-1">Saved addresses</p>
                 <div className="space-y-2">
                   {addresses.map((addr) => {
                     const isSelected = selectedAddress?.id === addr.id;
@@ -360,8 +365,8 @@ export function LocationContent({ onSelect }: { onSelect?: () => void }) {
             {/* Empty State / Auth Required */}
             {(!user || addresses.length === 0) && !query && (
               <div className="py-12 px-6 rounded-[2rem] bg-zinc-50/50 border border-zinc-100 text-center space-y-4">
-                <div className="size-14 rounded-full bg-white shadow-sm flex items-center justify-center mx-auto">
-                  <MapPin className="size-6 text-zinc-400" />
+                <div className="size-10 rounded-xl bg-[var(--primary)]/10 flex items-center justify-center">
+                  <Navigation className="size-5 text-[var(--primary)]" />
                 </div>
                 <div className="space-y-1">
                   <p className="text-sm font-bold text-zinc-900">

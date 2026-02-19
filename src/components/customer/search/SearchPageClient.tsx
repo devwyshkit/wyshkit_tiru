@@ -12,6 +12,7 @@ import { logger } from '@/lib/logging/logger';
 import { PartnerCard } from "@/components/customer/PartnerCard";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { ItemDetailView } from "@/components/customer/item/ItemDetailView";
+import Link from 'next/link';
 
 interface SearchPageClientProps {
   searchParams: Promise<{ q?: string; category?: string }>;
@@ -54,8 +55,6 @@ export function SearchPageClient({ searchParams, initialResults }: SearchPageCli
 
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<Error | null>(null);
-  const [selectedItem, setSelectedItem] = useState<Tables<'v_item_listings'> | null>(null);
-  const [isSheetOpen, setIsSheetOpen] = useState(false);
 
   // WYSHKIT 2026: Sync with URL params (for browser back/forward)
   useEffect(() => {
@@ -221,97 +220,110 @@ export function SearchPageClient({ searchParams, initialResults }: SearchPageCli
             <p className="text-sm font-semibold text-zinc-400">Search for items or stores</p>
           </div>
         ) : !hasResults ? (
-          <div className="flex flex-col items-center justify-center py-12 text-center">
-            <Search className="size-8 text-zinc-200 mb-3" />
-            <p className="text-sm font-medium text-zinc-500">
-              No results {debouncedQuery ? `for "${debouncedQuery}"` : ''}
-              {category && ` in ${category}`}
+          <div className="flex flex-col items-center justify-center py-20 text-center animate-in fade-in slide-in-from-bottom-4 duration-700">
+            <div className="size-20 bg-zinc-50 rounded-full flex items-center justify-center mb-6">
+              <Search className="size-8 text-zinc-200" />
+            </div>
+            <p className="text-sm font-black text-zinc-900 uppercase tracking-tight mb-2">No Results</p>
+            <p className="text-xs font-medium text-zinc-500 max-w-[200px] mb-8 leading-relaxed">
+              We couldn't find {debouncedQuery ? `"${debouncedQuery}"` : 'what you were looking for'}
+              {category && ` in ${category}`}.
             </p>
+            <Button
+              onClick={() => router.push('/')}
+              variant="outline"
+              className="rounded-xl border-zinc-200 text-xs font-black uppercase tracking-widest px-8"
+            >
+              Back to Home
+            </Button>
           </div>
         ) : (
           <div className="space-y-6">
-            {results.partners.length > 0 && (
-              <div>
-                <p className="text-xs font-medium text-zinc-400 mb-3">Stores</p>
-                <div className="space-y-2">
-                  {results.partners.map((partner) => (
-                    <PartnerCard
-                      key={partner.id as any}
-                      id={partner.id as any}
-                      name={(partner.name as any) || 'Store'}
-                      city={(partner.city as any) || 'City'}
-                      imageUrl={partner.image_url ?? '/images/logo.png'}
-                      rating={partner.rating as any}
-                      variant="row"
-                    />
-                  ))}
-                </div>
-              </div>
-            )}
+            {/* WYSHKIT 2026: Combined Search Context (One Vendor, One Card) */}
+            {hasResults && (
+              <div className="space-y-8">
+                {/* 1. Direct Store Matches */}
+                {results.partners.length > 0 && (
+                  <div>
+                    <h3 className="text-[10px] font-black text-zinc-400 uppercase tracking-[0.2em] mb-4 px-1">Top Stores</h3>
+                    <div className="space-y-4">
+                      {results.partners.map((partner) => (
+                        <PartnerCard
+                          key={partner.id as any}
+                          id={partner.id as any}
+                          name={(partner.name as any) || 'Store'}
+                          city={(partner.city as any) || 'City'}
+                          imageUrl={partner.image_url ?? '/images/logo.png'}
+                          rating={partner.rating as any}
+                          variant="row"
+                          className="bg-zinc-50/50 p-2"
+                        />
+                      ))}
+                    </div>
+                  </div>
+                )}
 
-            {results.items.length > 0 && (
-              <div>
-                <p className="text-xs font-medium text-zinc-400 mb-3">Items</p>
-                <div className="space-y-2">
-                  {results.items.map((item) => {
-                    // WYSHKIT 2026: Quick-Spec Model (Zero-Bounce)
-                    const partnerId = (item as any).partnerId || (item as any).partner_id;
-
-                    const handleItemClick = () => {
-                      setSelectedItem(item);
-                      setIsSheetOpen(true);
-                    };
-
-                    const handleDirectAdd = (e: React.MouseEvent) => {
-                      e.stopPropagation();
-                      // WYSHKIT 2026: Always open sheet for "Direct-Add" to allow confirmation
-                      handleItemClick();
-                    };
-
-                    return (
-                      <div key={item.id as any} className="relative">
-                        <button
-                          onClick={handleItemClick}
-                          className="w-full flex items-center gap-3 p-3 bg-zinc-50 rounded-xl hover:bg-zinc-100 transition-colors text-left group"
-                        >
-                          <div className="size-16 rounded-xl overflow-hidden shrink-0 bg-zinc-50 relative border border-zinc-100">
-                            <Image src={(item.images as any)?.[0] ?? '/images/logo.png'} alt={(item.name as any) || 'Item'} fill className="object-cover group-hover:scale-105 transition-transform duration-500" sizes="64px" />
+                {/* 2. Item Groups by Vendor */}
+                {results.items.length > 0 && (
+                  <div>
+                    <h3 className="text-[10px] font-black text-zinc-400 uppercase tracking-[0.2em] mb-4 px-1">Items from Stores</h3>
+                    <div className="space-y-6">
+                      {Object.entries(
+                        results.items.reduce((acc: Record<string, { partnerName: string, items: any[] }>, item) => {
+                          const pId = (item as any).partnerId || (item as any).partner_id || 'unknown';
+                          if (!acc[pId]) acc[pId] = { partnerName: (item as any).partner_name || 'Partner', items: [] };
+                          acc[pId].items.push(item);
+                          return acc;
+                        }, {})
+                      ).map(([pId, group]) => (
+                        <div key={pId} className="space-y-3">
+                          <div className="flex items-center justify-between px-1">
+                            <Link href={`/partner/${pId}`} className="text-xs font-black text-zinc-900 uppercase tracking-tight hover:text-[var(--primary)] transition-colors">
+                              {group.partnerName}
+                            </Link>
+                            <span className="text-[9px] font-bold text-zinc-400 uppercase tracking-widest">{group.items.length} Match{group.items.length > 1 ? 'es' : ''}</span>
                           </div>
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm font-bold text-zinc-900 truncate">{item.name as any}</p>
-                            <p className="text-xs text-zinc-500 font-medium">{(item.partner_name || 'Store')} · ₹{item.base_price}</p>
-                            <div className="mt-1 flex gap-1">
-                              {item.has_personalization && <span className="text-[8px] font-black uppercase tracking-widest text-[#D91B24] bg-rose-50 px-1.5 py-0.5 rounded border border-rose-100">Identity</span>}
-                            </div>
+
+                          <div className="space-y-2">
+                            {group.items.map((item) => {
+                              const itemHref = `/partner/${pId}/item/${item.id}${debouncedQuery ? `?q=${encodeURIComponent(debouncedQuery)}` : ''}`;
+
+                              return (
+                                <Link
+                                  key={item.id as any}
+                                  href={itemHref}
+                                  scroll={false}
+                                  className="w-full flex items-center gap-3 p-3 bg-zinc-50 rounded-2xl hover:bg-zinc-100 transition-all text-left group border border-zinc-100/50"
+                                >
+                                  <div className="size-14 rounded-xl overflow-hidden shrink-0 bg-zinc-100 relative border border-zinc-100">
+                                    <Image src={(item.images as any)?.[0] ?? '/images/logo.png'} alt={(item.name as any) || 'Item'} fill className="object-cover group-hover:scale-105 transition-transform duration-500" sizes="56px" />
+                                  </div>
+                                  <div className="flex-1 min-w-0">
+                                    <p className="text-sm font-bold text-zinc-900 truncate tracking-tight">{item.name as any}</p>
+                                    <p className="text-xs text-zinc-500 font-bold mt-0.5">₹{item.base_price}</p>
+                                    {item.has_personalization && (
+                                      <div className="mt-1">
+                                        <span className="text-[8px] font-black uppercase tracking-widest text-[var(--primary)] bg-[var(--primary)]/5 px-1.5 py-0.5 rounded border border-[var(--primary)]/10">Identity</span>
+                                      </div>
+                                    )}
+                                  </div>
+                                  <div className="h-8 px-4 bg-white border border-zinc-200 rounded-lg text-xs font-black text-emerald-600 shadow-sm hover:border-emerald-200 active:scale-95 transition-all flex items-center justify-center">
+                                    ADD+
+                                  </div>
+                                </Link>
+                              );
+                            })}
                           </div>
-                          <button
-                            onClick={handleDirectAdd}
-                            className="h-8 px-4 bg-white border border-zinc-200 rounded-lg text-xs font-black text-emerald-600 shadow-sm hover:border-emerald-200 active:scale-95 transition-all"
-                          >
-                            ADD+
-                          </button>
-                        </button>
-                      </div>
-                    );
-                  })}
-                </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>
         )}
       </div>
-
-      {/* WYSHKIT 2026: Quick-Spec Overlay (Zero-Bounce Interaction) */}
-      <Sheet open={isSheetOpen} onOpenChange={setIsSheetOpen}>
-        <SheetContent side="bottom" className="p-0 h-[85dvh] rounded-t-[32px] border-none overflow-hidden outline-none">
-          {selectedItem && (
-            <ItemDetailView
-              item={selectedItem as any}
-              onBack={() => setIsSheetOpen(false)}
-            />
-          )}
-        </SheetContent>
-      </Sheet>
     </div>
   );
 }

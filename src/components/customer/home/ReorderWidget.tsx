@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import Image from 'next/image';
-import { RotateCcw, ChevronRight, Sparkles, Clock, Check } from 'lucide-react';
+import { RotateCcw, ChevronRight, Sparkles, Clock, Check, AlertCircle } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { useCart } from '@/components/customer/CartProvider';
 import { createClient } from '@/lib/supabase/client';
@@ -10,6 +10,7 @@ import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { logger } from '@/lib/logging/logger';
 import { hasAnyPersonalization } from '@/lib/utils/personalization';
+import { triggerHaptic, HapticPattern } from '@/lib/utils/haptic';
 
 interface RecentOrder {
   id: string;
@@ -30,16 +31,21 @@ interface RecentOrder {
   partnerName?: string;
 }
 
-export function ReorderWidget() {
+interface ReorderWidgetProps {
+  initialOrders?: RecentOrder[];
+}
+
+export function ReorderWidget({ initialOrders }: ReorderWidgetProps) {
   const { user } = useAuth();
   const { addToDraftOrder, clearDraftOrder, isPending } = useCart();
 
-  const [recentOrders, setRecentOrders] = useState<RecentOrder[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [recentOrders, setRecentOrders] = useState<RecentOrder[]>(initialOrders || []);
+  const [itemAvailability, setItemAvailability] = useState<Record<string, { inStock: boolean; name: string }>>({});
+  const [loading, setLoading] = useState(!initialOrders);
   const [reorderingId, setReorderingId] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!user) {
+    if (initialOrders || !user) {
       setLoading(false);
       return;
     }
@@ -65,6 +71,26 @@ export function ReorderWidget() {
           partnerName: d.partner_name
         }));
         setRecentOrders(mapped as RecentOrder[]);
+
+        // Fetch current stock for these items
+        const itemIds = Array.from(new Set(mapped.flatMap(order => order.items.map((i: any) => i.item_id))));
+        if (itemIds.length > 0) {
+          const { data: stockData } = await supabase
+            .from('items')
+            .select('id, name, stock_quantity, is_active')
+            .in('id', itemIds);
+
+          if (stockData) {
+            const availability = (stockData as any[]).reduce((acc, item) => {
+              acc[item.id] = {
+                inStock: item.is_active && item.stock_quantity > 0,
+                name: item.name
+              };
+              return acc;
+            }, {});
+            setItemAvailability(availability);
+          }
+        }
       }
       setLoading(false);
     };
@@ -75,11 +101,14 @@ export function ReorderWidget() {
   const handleReorder = async (order: RecentOrder) => {
     if (!order.items || order.items.length === 0) return;
 
+    // WYSHKIT 2026: Momentum Haptic
+    triggerHaptic(HapticPattern.ACTION);
+
     setReorderingId(order.id);
 
     try {
       for (const item of order.items) {
-        await addToDraftOrder(
+        const result = await addToDraftOrder(
           item.item_id,
           item.variant_id || null,
           item.personalization || { enabled: false },
@@ -92,6 +121,20 @@ export function ReorderWidget() {
             partnerName: order.partnerName,
           }
         );
+
+        if (result?.error) {
+          // Swiggy 2026: Stop early on error (like PARTNER_MISMATCH or OUT_OF_STOCK)
+          if (result.code === 'OUT_OF_STOCK') {
+            toast.error(result.error);
+            return;
+          }
+          if (result.code !== 'PARTNER_MISMATCH') {
+            toast.error(result.error || 'Failed to add some items');
+            return;
+          }
+          // If mismatch, the dialog is shown by CartProvider, we should stop our loop
+          return;
+        }
       }
       toast.success('Items added to cart!');
       logger.info('Reorder successful', { orderId: order.id, itemCount: order.items.length });
@@ -104,7 +147,11 @@ export function ReorderWidget() {
     }
   };
 
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+
   const formatDate = (dateStr: string) => {
+    if (!mounted) return '';
     const date = new Date(dateStr);
     const now = new Date();
     const diffDays = Math.floor((now.getTime() - date.getTime()) / (1000 * 60 * 60 * 24));
@@ -146,15 +193,18 @@ export function ReorderWidget() {
           const isReordering = reorderingId === order.id;
           const hasPersonalization = hasAnyPersonalization(order.items || []);
 
+          const isOrderAvailable = order.items?.every(item => itemAvailability[item.item_id]?.inStock ?? true);
+
           return (
             <button
               key={order.id}
               onClick={() => handleReorder(order)}
-              disabled={isPending || isReordering}
+              disabled={isPending || isReordering || !isOrderAvailable}
               className={cn(
                 "shrink-0 w-[260px] bg-white rounded-2xl border border-zinc-100 overflow-hidden",
                 "hover:border-zinc-200 hover:shadow-lg transition-all duration-300",
                 "active:scale-[0.98] disabled:opacity-60 disabled:cursor-not-allowed",
+                !isOrderAvailable && "grayscale",
                 "group slide-in-from-bottom-2",
                 `[animation-delay:${index * 0.1}s]`
               )}
@@ -207,12 +257,19 @@ export function ReorderWidget() {
                       "flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all",
                       isReordering
                         ? "bg-emerald-100 text-emerald-700"
-                        : "bg-zinc-100 text-zinc-700 group-hover:bg-zinc-900 group-hover:text-white"
+                        : !isOrderAvailable
+                          ? "bg-rose-50 text-rose-600"
+                          : "bg-zinc-100 text-zinc-700 group-hover:bg-zinc-900 group-hover:text-white"
                     )}>
                       {isReordering ? (
                         <>
                           <Check className="size-3" />
                           <span>Adding</span>
+                        </>
+                      ) : !isOrderAvailable ? (
+                        <>
+                          <AlertCircle className="size-3" />
+                          <span>OOS</span>
                         </>
                       ) : (
                         <>

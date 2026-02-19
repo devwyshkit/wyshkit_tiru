@@ -8,6 +8,8 @@ import { toast } from 'sonner';
 import { useState } from 'react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
+import { triggerHaptic, HapticPattern } from '@/lib/utils/haptic';
+import { logger } from '@/lib/logging/logger';
 
 interface BillSummaryProps {
     order: any;
@@ -42,7 +44,7 @@ export function BillSummary({ order }: BillSummaryProps) {
             generateTaxInvoicePDF(data);
             toast.success('Invoice downloaded');
         } catch (error) {
-            console.error('Invoice generation failed', error);
+            logger.error('Invoice generation failed', error as Error);
             toast.error('Failed to generate invoice');
         }
     };
@@ -50,61 +52,74 @@ export function BillSummary({ order }: BillSummaryProps) {
     return (
         <div className="bg-white rounded-[2rem] border border-zinc-100 overflow-hidden">
             <button
-                onClick={() => setIsExpanded(!isExpanded)}
-                className="w-full flex items-center justify-between p-5 bg-zinc-50/50 hover:bg-zinc-50 transition-colors"
+                onClick={() => {
+                    setIsExpanded(!isExpanded);
+                    triggerHaptic(HapticPattern.ACTION);
+                }}
+                className={cn(
+                    "w-full flex items-center justify-between p-5 bg-white hover:bg-zinc-50 transition-all duration-300",
+                    isExpanded && "bg-zinc-50 border-b border-zinc-100"
+                )}
             >
                 <div className="flex items-center gap-3">
-                    <div className="size-10 rounded-xl bg-white border border-zinc-100 flex items-center justify-center shadow-sm">
+                    <div className={cn(
+                        "size-10 rounded-xl bg-white border border-zinc-100 flex items-center justify-center shadow-sm transition-transform duration-500",
+                        isExpanded && "rotate-6 scale-110"
+                    )}>
                         <FileText className="size-5 text-zinc-900" />
                     </div>
                     <div className="text-left">
                         <p className="text-sm font-bold text-zinc-900">Bill Summary</p>
-                        <p className="text-[10px] font-medium text-zinc-500">
+                        <p className="text-[11px] font-bold text-zinc-600 tabular-nums">
                             Total: {formatCurrency(order.total || 0)}
                         </p>
                     </div>
                 </div>
-                {isExpanded ? <ChevronUp className="size-5 text-zinc-400" /> : <ChevronDown className="size-5 text-zinc-400" />}
+                <div className={cn(
+                    "p-2 rounded-full bg-zinc-100 transition-transform duration-500",
+                    isExpanded ? "rotate-180 bg-zinc-200" : "rotate-0"
+                )}>
+                    <ChevronDown className="size-4 text-zinc-900" />
+                </div>
             </button>
 
             <div className={cn(
-                "grid transition-all duration-300 ease-in-out",
+                "grid transition-all duration-500 ease-[cubic-bezier(0.34,1.56,0.64,1)]",
                 isExpanded ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0"
             )}>
                 <div className="overflow-hidden">
-                    <div className="p-5 pt-0 space-y-3">
-                        <div className="h-px bg-zinc-100 w-full mb-4" />
+                    <div className="p-5 space-y-3">
 
-                        <div className="flex justify-between text-xs text-zinc-600">
+                        <div className="flex justify-between text-[11px] font-bold text-zinc-600">
                             <span>Item Total</span>
-                            <span className="font-medium text-zinc-900">{formatCurrency(order.subtotal || 0)}</span>
+                            <span className="text-zinc-900">{formatCurrency(order.subtotal || 0)}</span>
                         </div>
 
                         {(order.delivery_fee > 0 || order.delivery_fee === 0) && (
-                            <div className="flex justify-between text-xs text-zinc-600">
+                            <div className="flex justify-between text-[11px] font-bold text-zinc-600">
                                 <span>Delivery Fee</span>
-                                <span className="font-medium text-zinc-900">
+                                <span className="text-zinc-900">
                                     {order.delivery_fee === 0 ? 'FREE' : formatCurrency(order.delivery_fee)}
                                 </span>
                             </div>
                         )}
 
                         {(order.platform_fee > 0) && (
-                            <div className="flex justify-between text-xs text-zinc-600">
+                            <div className="flex justify-between text-[11px] font-bold text-zinc-600">
                                 <span>Platform Fee</span>
-                                <span className="font-medium text-zinc-900">{formatCurrency(order.platform_fee)}</span>
+                                <span className="text-zinc-900">{formatCurrency(order.platform_fee)}</span>
                             </div>
                         )}
 
-                        <div className="flex justify-between text-xs text-zinc-600">
+                        <div className="flex justify-between text-[11px] font-black text-zinc-950">
                             <span>GST & Taxes</span>
-                            <span className="font-medium text-zinc-900">{formatCurrency(order.tax_amount || 0)}</span>
+                            <span>{formatCurrency(order.tax_amount || 0)}</span>
                         </div>
 
                         {((order.discount || 0) + (order.cashback_amount || 0)) > 0 && (
-                            <div className="flex justify-between text-xs text-emerald-600 font-medium">
-                                <span>Total Savings</span>
-                                <span>-{formatCurrency((order.discount || 0) + (order.cashback_amount || 0))}</span>
+                            <div className="flex justify-between items-center py-2 px-3 bg-emerald-50/50 rounded-xl border border-emerald-100/50">
+                                <span className="text-[10px] font-black text-emerald-700 uppercase tracking-widest">Total Savings</span>
+                                <span className="text-sm font-black text-emerald-700">-{formatCurrency((order.discount || 0) + (order.cashback_amount || 0))}</span>
                             </div>
                         )}
 

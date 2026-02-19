@@ -1,0 +1,219 @@
+'use client';
+
+import { useState, useCallback, useRef, useEffect } from "react";
+import { useRouter } from "next/navigation";
+import { toast } from "sonner";
+import { logger } from "@/lib/logging/logger";
+import { createClient } from "@/lib/supabase/client";
+import { triggerHaptic, HapticPattern } from "@/lib/utils/haptic";
+import { CheckoutData } from "@/lib/actions/checkout";
+
+interface UsePaymentFlowProps {
+    data: CheckoutData;
+    selectedAddressId: string | null;
+    deliveryInstructions?: string;
+    clearDraftOrder: () => Promise<void>;
+    authUser: any;
+}
+
+export function usePaymentFlow({
+    data,
+    selectedAddressId,
+    deliveryInstructions,
+    clearDraftOrder,
+    authUser
+}: UsePaymentFlowProps) {
+    const router = useRouter();
+    const [isProcessing, setIsProcessing] = useState(false);
+    const [isSuccess, setIsSuccess] = useState(false);
+    const [uploadOrder, setUploadOrder] = useState<any>(null);
+    const [trackingOrderId, setTrackingOrderId] = useState<string | null>(null);
+
+    const successRef = useRef(false);
+    const paymentInitiatedRef = useRef(false);
+    const activeRazorpayOrderIdRef = useRef<string | null>(null);
+
+    const handleOrderSuccess = useCallback(async (order: any, orderId?: string, hasPersonalization?: boolean) => {
+        // WYSHKIT 2026: Strict idempotency guard
+        if (successRef.current) return;
+        successRef.current = true;
+
+        logger.info("Payment success intercepted", { orderId, hasPersonalization });
+
+        setIsProcessing(false);
+        setIsSuccess(true);
+
+        const finalOrderId = orderId || order?.id;
+        const finalHasPersonalization = hasPersonalization ?? order?.has_personalization ?? order?.hasPersonalization;
+
+        // SWIGGY 2026: Zero-Delay Redirect — no pre-fetching.
+        // OrderTracker's useOrderRealtime handles data loading.
+        // Clear cart in background, don't block redirect.
+        clearDraftOrder().catch(e => logger.error("Failed to clear cart, proceeding anyway", { error: e }));
+
+        if (finalOrderId) {
+            const params = new URLSearchParams();
+            params.set('success', 'true');
+            if (finalHasPersonalization) params.set('identity', 'true');
+            // SWIGGY 2026: router.replace — checkout should NOT be in history stack.
+            // Back button should go to homepage, not back to empty checkout.
+            router.replace(`/orders/${finalOrderId}?${params.toString()}`);
+        } else {
+            router.replace('/orders');
+        }
+    }, [clearDraftOrder, router]);
+
+    const handlePayment = useCallback(async () => {
+        if (!authUser || !data.pricing) return;
+        if (!selectedAddressId) {
+            toast.error('Please select a delivery address');
+            return;
+        }
+
+        if (isProcessing || isSuccess || paymentInitiatedRef.current) {
+            return;
+        }
+
+        try {
+            paymentInitiatedRef.current = true;
+            setIsProcessing(true);
+
+            const { createPaymentOrder, verifyPaymentSignature } = await import('@/lib/actions/payment');
+
+            const response = await createPaymentOrder(
+                Math.round(data.pricing.total * 100),
+                'INR',
+                {
+                    addressId: selectedAddressId,
+                    draftItems: data.items,
+                    pricing: data.pricing,
+                    appliedCoupon: data.appliedCoupon || undefined,
+                    useWallet: data.useWallet,
+                    walletDiscount: data.pricing.walletDiscount || 0,
+                    deliveryInstructions: deliveryInstructions || undefined,
+                }
+            );
+
+            if (response.error || !response.order) {
+                throw new Error(response.error || 'Failed to create payment order');
+            }
+
+            const orderData = response.order;
+            activeRazorpayOrderIdRef.current = orderData.id;
+            setTrackingOrderId(orderData.id);
+
+            let RazorpayConstructor = typeof window !== 'undefined' ? (window as any).Razorpay : null;
+            if (!RazorpayConstructor) {
+                for (let i = 0; i < 6; i++) {
+                    await new Promise(r => setTimeout(r, 500));
+                    RazorpayConstructor = (window as any).Razorpay;
+                    if (RazorpayConstructor) break;
+                }
+            }
+
+            if (RazorpayConstructor) {
+                const options = {
+                    key: orderData.key || process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID,
+                    amount: orderData.amount,
+                    currency: orderData.currency,
+                    name: 'Wyshkit',
+                    description: `Order from ${data.partnerName || 'Local Store'}`,
+                    order_id: orderData.id,
+                    handler: async (razorpayResponse: any) => {
+                        try {
+                            const verifyResponse = await verifyPaymentSignature(
+                                razorpayResponse.razorpay_order_id,
+                                razorpayResponse.razorpay_payment_id,
+                                razorpayResponse.razorpay_signature,
+                                {
+                                    draftId: orderData.draftId
+                                }
+                            );
+
+                            if (verifyResponse.error) {
+                                logger.error('Payment verification action failed', { error: verifyResponse.error });
+                                toast.error("Still verifying your order... please don't refresh.");
+                            }
+
+                            if (verifyResponse.success && !successRef.current) {
+                                handleOrderSuccess(verifyResponse.order || null, verifyResponse.orderId, verifyResponse.hasPersonalization ?? undefined);
+                            }
+                        } catch (err) {
+                            toast.error(err instanceof Error ? err.message : 'Payment verification failed');
+                            setIsProcessing(false);
+                            paymentInitiatedRef.current = false;
+                        }
+                    },
+                    prefill: { name: authUser?.user_metadata?.full_name, phone: authUser?.phone },
+                    theme: { color: '#18181b' },
+                    modal: {
+                        ondismiss: () => {
+                            setIsProcessing(false);
+                            paymentInitiatedRef.current = false;
+                        }
+                    },
+                    retry: {
+                        enabled: false
+                    }
+                };
+
+                const rzp = new RazorpayConstructor(options);
+                rzp.open();
+            } else {
+                toast.error('Payment gateway not loaded. Please refresh and try again.');
+                setIsProcessing(false);
+                paymentInitiatedRef.current = false;
+            }
+        } catch (err) {
+            toast.error(err instanceof Error ? err.message : 'Payment failed');
+            setIsProcessing(false);
+            paymentInitiatedRef.current = false;
+        }
+    }, [authUser, data, selectedAddressId, deliveryInstructions, isProcessing, isSuccess, handleOrderSuccess]);
+
+    useEffect(() => {
+        if (!trackingOrderId || successRef.current) return;
+
+        const supabase = createClient();
+        const channel = supabase
+            .channel(`checkout-${trackingOrderId}`)
+            .on(
+                'postgres_changes',
+                {
+                    event: '*',
+                    schema: 'public',
+                    table: 'orders',
+                    filter: `razorpay_order_id=eq.${trackingOrderId}`
+                },
+                async (payload) => {
+                    const newOrder = payload.new as any;
+                    if (newOrder && !successRef.current && newOrder.razorpay_order_id === trackingOrderId) {
+                        const isValidSuccess =
+                            newOrder.status === 'PLACED' ||
+                            newOrder.status === 'CONFIRMED' ||
+                            newOrder.status === 'PAID' ||
+                            (newOrder.payment_status === 'PAID' || newOrder.payment_status === 'captured');
+
+                        if (isValidSuccess) {
+                            handleOrderSuccess(newOrder, newOrder.id, newOrder.has_personalization);
+                        }
+                    }
+                }
+            )
+            .subscribe();
+
+        return () => {
+            supabase.removeChannel(channel);
+        };
+    }, [trackingOrderId, handleOrderSuccess]);
+
+    return {
+        isProcessing,
+        isSuccess,
+        uploadOrder,
+        setUploadOrder,
+        setIsSuccess,
+        handlePayment,
+        trackingOrderId
+    };
+}

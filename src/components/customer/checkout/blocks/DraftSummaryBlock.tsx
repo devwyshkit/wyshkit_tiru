@@ -2,11 +2,14 @@
 
 import React from 'react';
 import Image from 'next/image';
-import { ShieldAlert, Plus, Minus, Trash2 } from 'lucide-react';
+import { ShieldAlert, Plus, Minus, Trash2, Edit3 } from 'lucide-react';
 import type { HydratedDraftItem } from '../types';
 import { cn } from '@/lib/utils';
+import { useRouter } from 'next/navigation';
 
 import { triggerHaptic, HapticPattern } from '@/lib/utils/haptic';
+
+import { formatCurrency } from '@/lib/utils/pricing';
 
 const FALLBACK_IMAGE = '/images/logo.png';
 
@@ -21,6 +24,7 @@ interface DraftSummaryBlockProps {
  * WYSHKIT 2026: Estimate download in Bill Summary accordion
  */
 export function DraftSummaryBlock({ items, onUpdateQuantity, onRemoveItem, editable = true }: DraftSummaryBlockProps) {
+  const router = useRouter();
   if (items.length === 0) return null;
 
   const handleQuantityChange = (itemId: string, variantId: string | null, currentQty: number, delta: number) => {
@@ -38,8 +42,8 @@ export function DraftSummaryBlock({ items, onUpdateQuantity, onRemoveItem, edita
   return (
     <div className="space-y-2">
       <div className="flex items-center justify-between">
-        <label className="label-overline">Your order</label>
-        <span className="text-xs text-zinc-400">{items.length} item{items.length > 1 ? 's' : ''}</span>
+        <label className="text-[10px] font-black uppercase tracking-widest text-zinc-900 border-l-2 border-[var(--primary)] pl-2">Your order</label>
+        <span className="text-[11px] font-bold text-zinc-500 tabular-nums">{items.length} item{items.length > 1 ? 's' : ''}</span>
       </div>
 
       <div className="space-y-1.5">
@@ -65,18 +69,16 @@ export function DraftSummaryBlock({ items, onUpdateQuantity, onRemoveItem, edita
                       {item.name}
                     </h4>
                     {item.variantName && (
-                      <p className="text-[10px] text-zinc-500 mt-0.5">{item.variantName}</p>
+                      <p className="text-[10px] text-zinc-500 font-medium mt-0.5">{item.variantName}</p>
                     )}
                   </div>
                   <span className="text-[13px] font-semibold text-zinc-900 tabular-nums shrink-0">
-                    ₹{totalPrice}
+                    {formatCurrency(totalPrice)}
                   </span>
                 </div>
 
                 <div className="flex items-center justify-between mt-auto pt-1">
-                  <p className="text-[10px] font-medium text-zinc-400">
-                    ₹{unitPrice} each
-                  </p>
+                  {formatCurrency(unitPrice)} <span className="text-zinc-400 lowercase">each</span>
 
                   {editable && onUpdateQuantity && onRemoveItem ? (
                     <div className="flex items-center gap-0.5">
@@ -85,7 +87,7 @@ export function DraftSummaryBlock({ items, onUpdateQuantity, onRemoveItem, edita
                         className={cn(
                           "size-6 flex items-center justify-center rounded-md transition-colors",
                           item.quantity === 1
-                            ? "bg-red-50 text-red-500 hover:bg-red-100"
+                            ? "bg-amber-50 text-[var(--primary)] hover:bg-amber-100"
                             : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200"
                         )}
                       >
@@ -102,18 +104,39 @@ export function DraftSummaryBlock({ items, onUpdateQuantity, onRemoveItem, edita
                       </button>
                     </div>
                   ) : (
-                    <span className="text-[10px] font-medium text-zinc-500">
+                    <span className="text-[11px] font-bold text-zinc-950 uppercase tracking-tighter">
                       Qty: {item.quantity}
                     </span>
                   )}
                 </div>
 
-                {item.personalization?.enabled && (
-                  <div className="mt-1 flex items-center gap-1 text-[9px] font-medium text-amber-600">
-                    <ShieldAlert className="size-2.5" />
-                    <span>Personalized</span>
+                <div className="mt-1 flex items-center justify-between">
+                  <div className="flex items-center gap-1">
+                    {item.personalization?.enabled ? (
+                      <div className="flex items-center gap-1 text-[9px] font-medium text-amber-600">
+                        <ShieldAlert className="size-2.5" />
+                        <span>Personalized</span>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-1 text-[9px] font-black text-zinc-400 uppercase tracking-tighter">
+                        <span>Standard Item</span>
+                      </div>
+                    )}
                   </div>
-                )}
+                  {editable && (
+                    <button
+                      onClick={() => {
+                        const partnerId = (item as any).partnerId || 'unknown';
+                        const addonIds = (item.selectedAddons || []).map((a: any) => a.id).join(',');
+                        router.push(`/partner/${partnerId}/item/${item.itemId}?edit=true&cartItemId=${item.id}&variantId=${item.variantId || ''}&quantity=${item.quantity}&addons=${addonIds}`);
+                      }}
+                      className="text-[9px] font-bold text-[var(--primary)] flex items-center gap-0.5 hover:underline"
+                    >
+                      <Edit3 className="size-2.5" />
+                      Edit Item
+                    </button>
+                  )}
+                </div>
               </div>
             </div>
           );

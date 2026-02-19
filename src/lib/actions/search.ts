@@ -18,9 +18,10 @@ export async function searchFiltered(options: SearchOptions = {}) {
   // Build items query
   let itemsQuery = supabase
     .from('items')
-    .select('id, name, slug, images, base_price, category, partner_id, partners!inner(name, display_name)')
+    .select('id, name, slug, images, base_price, category, partner_id, stock_status, stock_quantity, partners!inner(name, display_name)')
     .eq('is_active', true)
     .eq('approval_status', 'approved')
+    .neq('stock_status', 'out_of_stock') // WYSHKIT 2026: Zero Reflection
     .limit(limit);
 
   // Apply search query

@@ -40,9 +40,5 @@ export function InterceptedProfileClient() {
 }
 
 function ProfilePageContent() {
-    const searchParams = useSearchParams();
-    const tab = searchParams.get('tab') as 'account' | 'orders' | 'addresses' | 'settings' | null;
-    const action = searchParams.get('action');
-
-    return <ProfilePage initialTab={tab || undefined} initialAction={action || undefined} />;
+    return <ProfilePage />;
 }

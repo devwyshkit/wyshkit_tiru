@@ -131,19 +131,24 @@ class Logger {
 
   // Convenience methods for common scenarios
   logAction(action: string, context?: LogContext, metadata?: Record<string, unknown>): void {
-    this.info(`Action: ${action}`, context, metadata);
+    const fullContext = {
+      ...context,
+      action,
+      env: this.isDevelopment ? 'dev' : 'prod'
+    };
+    this.info(`[ACTION] ${action}`, fullContext, metadata);
   }
 
   logAPIRequest(method: string, path: string, context?: LogContext): void {
-    this.info(`API Request: ${method} ${path}`, context);
+    this.info(`[API] ${method} ${path}`, { ...context, method, path });
   }
 
   logOrderEvent(event: string, orderId: string, context?: LogContext): void {
-    this.info(`Order Event: ${event}`, { ...context, orderId });
+    this.info(`[ORDER] ${event}`, { ...context, orderId, event });
   }
 
   logPerformance(operation: string, duration: number, context?: LogContext): void {
-    this.info(`Performance: ${operation} took ${duration}ms`, context, { duration });
+    this.info(`[PERF] ${operation} took ${duration}ms`, context, { duration, operation });
   }
 }
 

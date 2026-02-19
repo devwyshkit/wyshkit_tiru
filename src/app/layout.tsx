@@ -6,8 +6,8 @@ import { Providers } from "@/components/Providers";
 
 export const metadata: Metadata = {
   metadataBase: new URL(process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'),
-  title: "Wyshkit | Hyperlocal Products with Optional Personalization",
-  description: "Hyperlocal item marketplace with optional personalization. Order items from local partners and add your identity.",
+  title: "WyshKit | Premium Hyperlocal Personalization",
+  description: "The gold standard for hyperlocal gifts and items. Order from premium local partners with seamless, optional personalization.",
   keywords: ["hyperlocal", "marketplace", "personalization", "delivery", "local partners", "wyshkit"],
   authors: [{ name: "Wyshkit" }],
   icons: {
@@ -41,7 +41,7 @@ export const viewport: Viewport = {
   maximumScale: 1,
   userScalable: false,
   viewportFit: "cover",
-  themeColor: "#D91B24",
+  themeColor: '#C5A059',
 };
 
 export default function RootLayout({
@@ -57,6 +57,6 @@ export default function RootLayout({
           {children}
         </Providers>
       </body>
-    </html>
+    </html >
   );
 }

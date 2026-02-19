@@ -4,14 +4,14 @@ import React, { useMemo } from 'react';
 import Image from 'next/image';
 import { Star, Sparkles, Flame, Clock } from 'lucide-react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, usePathname, useSearchParams } from 'next/navigation';
 import { cn } from '@/lib/utils';
 import { AddToCartButton } from './AddToCartButton';
 import { useCart } from '@/components/customer/CartProvider';
 import { triggerHaptic, HapticPattern } from '@/lib/utils/haptic';
-import { calculateTravelTime } from '@/lib/utils/distance';
 import { formatCurrency } from '@/lib/utils/pricing';
 import { hasItemPersonalization } from '@/lib/utils/personalization';
+import { getDeliverySLASignal, getStockSLASignal, calculateTravelTime } from '@/lib/utils/sla';
 
 import { ItemListItem } from '@/lib/types/item';
 
@@ -21,7 +21,6 @@ interface ItemCardProps {
   item: any; // Relaxed for flexible store/search/home usage in Swiggy 2026 Shift
   className?: string;
   variant?: 'default' | 'compact' | 'cart';
-  onQuickAdd?: () => void;
   partnerId?: string;
   priority?: boolean;
 }
@@ -34,6 +33,7 @@ export function ItemCard({
   priority = false,
 }: ItemCardProps) {
   const router = useRouter();
+  const pathname = usePathname();
   const { draftOrder } = useCart();
 
   const {
@@ -60,26 +60,35 @@ export function ItemCard({
     return cartItems.some((cartItem: any) => cartItem.itemId === id) || false;
   }, [cartItems, id]);
 
+  const travelTime = useMemo(() => {
+    return calculateTravelTime(item.distance_km || (item.distance_meters ? item.distance_meters / 1000 : undefined));
+  }, [item.distance_km, item.distance_meters]);
+
+  const searchParams = useSearchParams();
+  const isFromSearch = searchParams?.get('q') || searchParams?.get('context') === 'search' || pathname === '/search';
+
+  // WYSHKIT 2026: Unified Routing Pattern
+  // Always use sub-routes for items within partners to ensure stable background context
   const href = itemPartnerId
-    ? `/partner/${itemPartnerId}/item/${id}`
+    ? `/partner/${itemPartnerId}/item/${id}${isFromSearch ? '?context=search' : ''}`
     : `/search?q=${encodeURIComponent(name)}`;
 
-  const deliverySignal = (() => {
-    if (item.category?.toLowerCase() === 'flowers' || item.category?.toLowerCase() === 'cakes') {
-      return { type: 'fast', text: 'Perishable: Fast SLA', icon: <Flame className="size-3 text-orange-500" /> };
-    }
-    if (item.production_time_minutes && item.production_time_minutes <= 45) {
-      return { type: 'fast', text: `${item.production_time_minutes} mins prep`, icon: <Sparkles className="size-3 text-emerald-500" /> };
-    }
-    return null;
-  })();
+  const deliverySignal = useMemo(() => {
+    const signal = getDeliverySLASignal(item);
+    if (!signal) return null;
 
-  const urgencySignal = (() => {
-    if (typeof stockQuantity === 'number' && stockQuantity > 0 && stockQuantity <= 3) {
-      return { type: 'scarcity', text: `Only ${stockQuantity} left` };
+    // Icon mapping for consistent rendering
+    let icon = <Clock className="size-3 text-zinc-500" />;
+    if (item.category?.toLowerCase() === 'flowers' || item.category?.toLowerCase() === 'cakes') {
+      icon = <Flame className="size-3 text-orange-500" />;
+    } else if (item.production_time_minutes <= 45) {
+      icon = <Sparkles className="size-3 text-emerald-500" />;
     }
-    return null;
-  })();
+
+    return { ...signal, icon };
+  }, [item]);
+
+  const urgencySignal = useMemo(() => getStockSLASignal(item), [item]);
 
   if (variant === 'cart') {
     return (
@@ -89,7 +98,7 @@ export function ItemCard({
         </div>
         <div className="flex-1 flex flex-col min-w-0 py-0.5">
           <h3 className="text-[13px] font-semibold text-zinc-900 truncate leading-tight tracking-tight">{name}</h3>
-          <p className="text-[11px] font-medium text-zinc-400 mt-0.5">{partnerName}</p>
+          <p className="text-[11px] font-bold text-zinc-500 mt-0.5">{partnerName}</p>
           <div className="mt-auto">
             <span className="text-sm font-bold text-zinc-900 tabular-nums">{formatCurrency(displayPrice)}</span>
           </div>
@@ -99,7 +108,8 @@ export function ItemCard({
   }
 
   const cardClassName = cn(
-    "flex flex-col group font-sans relative transition-transform duration-300 ease-out hover:scale-[1.02] active:scale-[0.99]",
+    "flex flex-col group font-sans relative transition-all duration-300 ease-out",
+    "hover:scale-[1.02] active:scale-[0.99] cursor-pointer",
     className
   );
 
@@ -134,51 +144,50 @@ export function ItemCard({
 
         {isPersonalizable && (
           <div className="absolute bottom-2 left-2 max-w-[calc(100%-4rem)] animate-in slide-in-from-left-2 duration-500">
-            <div className="bg-[#D91B24]/10 backdrop-blur-md px-2 py-0.5 rounded-md flex items-center gap-1 shadow-sm border border-[#D91B24]/20">
-              <Sparkles className="size-2.5 text-[#D91B24]" />
-              <span className="text-[9px] font-black text-[#D91B24] uppercase tracking-tighter">Identity Enabled</span>
+            <div className="bg-[var(--primary)]/10 backdrop-blur-md px-2 py-0.5 rounded-md flex items-center gap-1 shadow-sm border border-[var(--primary)]/20">
+              <Sparkles className="size-2.5 text-[var(--primary)]" />
+              <span className="text-[9px] font-black text-[var(--primary)] uppercase tracking-tighter">Identity Enabled</span>
             </div>
           </div>
         )}
 
-        {((typeof stockQuantity === 'number' && stockQuantity <= 0) || item.stock_status === 'out_of_stock') ? (
-          <div className="absolute bottom-2 right-2 z-10 bg-white/90 backdrop-blur px-2 py-1 rounded-lg border border-zinc-100 shadow-sm">
-            <span className="text-[10px] font-black text-zinc-400 uppercase tracking-tight">Out of Stock</span>
-          </div>
-        ) : (
-          <div
-            className="absolute bottom-2 right-2 z-10"
-            onClick={(e) => e.stopPropagation()}
-            onMouseDown={(e) => e.stopPropagation()}
-          >
-            <AddToCartButton
-              itemId={id}
-              itemName={name}
-              itemImage={imageUrl}
-              unitPrice={displayPrice}
-              partnerId={itemPartnerId}
-              partnerName={partnerName}
-              isIdentityAvailable={isPersonalizable}
-              hasVariants={hasVariants}
-            />
-          </div>
-        )}
+        <div
+          className="absolute bottom-2 right-2 z-10"
+          onClick={(e) => e.stopPropagation()}
+          onMouseDown={(e) => e.stopPropagation()}
+        >
+          <AddToCartButton
+            itemId={id}
+            itemName={name}
+            itemImage={imageUrl}
+            unitPrice={displayPrice}
+            partnerId={itemPartnerId}
+            partnerName={partnerName}
+            isIdentityAvailable={isPersonalizable}
+            hasVariants={hasVariants}
+            stockQuantity={stockQuantity}
+          />
+        </div>
       </div>
 
       <div className="mt-1.5 px-0.5">
         <h3 className="text-[13px] font-semibold text-zinc-900 line-clamp-2 leading-tight tracking-tight group-hover:text-zinc-600 transition-colors">
           {name}
         </h3>
-        <p className="text-[10px] font-medium text-zinc-400 truncate mt-0.5">
-          {partnerName || 'Local store'}
-        </p>
+        <div className="flex items-center gap-1.5 mt-1">
+          <p className="text-[10px] font-black text-[var(--primary)] uppercase tracking-tight truncate leading-none">
+            {partnerName || 'Local store'}
+          </p>
+          <div className="size-1 rounded-full bg-zinc-200" />
+          <span className="text-[9px] font-bold text-zinc-400 uppercase tracking-tighter">View Store</span>
+        </div>
 
         {deliverySignal && (
           <div className="flex items-center gap-1 mt-1">
             {deliverySignal.icon}
             <span className={cn(
               "text-[10px] font-bold",
-              deliverySignal.type === 'fast' ? "text-orange-600" : "text-emerald-600"
+              deliverySignal.type === 'fast' ? "text-[var(--primary)]" : "text-emerald-600"
             )}>
               {deliverySignal.text}
             </span>
@@ -197,24 +206,20 @@ export function ItemCard({
           </div>
         )}
 
-        {(() => {
-          const travelTime = calculateTravelTime(item.distance_km || (item.distance_meters ? item.distance_meters / 1000 : undefined));
-          if (!travelTime) return null;
-          return (
-            <div className="flex items-center gap-1.5 mt-1.5 px-0.5">
-              <Clock className="size-3 text-zinc-400" />
-              <span className="text-[9px] font-black text-zinc-500 uppercase tracking-widest">
-                {travelTime.min}-{travelTime.max} mins
-              </span>
-            </div>
-          );
-        })()}
+        {travelTime && (
+          <div className="flex items-center gap-1.5 mt-1.5 px-0.5">
+            <Clock className="size-3 text-zinc-500" />
+            <span className="text-[9px] font-black text-zinc-600 uppercase tracking-widest">
+              {travelTime.min}-{travelTime.max} mins
+            </span>
+          </div>
+        )}
 
         <div className="flex items-center gap-2 mt-2 px-0.5 flex-wrap">
           <span className="text-sm font-black text-foreground tabular-nums tracking-tighter">{formatCurrency(displayPrice)}</span>
           {displayMrp > displayPrice && (
             <div className="flex items-center gap-1.5">
-              <span className="text-[10px] text-muted-foreground line-through font-bold opacity-30">{formatCurrency(displayMrp)}</span>
+              <span className="text-[10px] text-zinc-400 line-through font-bold">{formatCurrency(displayMrp)}</span>
               <span className="text-[10px] font-black text-emerald-600 uppercase tracking-tighter bg-emerald-50 px-1.5 py-0.5 rounded-md">
                 {Math.round(((displayMrp - displayPrice) / displayMrp) * 100)}% OFF
               </span>
@@ -225,34 +230,19 @@ export function ItemCard({
     </>
   );
 
-  const handleNavigation = (e: React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-
-    // WYSHKIT 2026: Momentum Haptic
-    triggerHaptic(HapticPattern.ACTION);
-
-    if (itemPartnerId) {
-      // Swiggy 2026: Portal Navigation
-      // 1. Silently establishment store context in the background
-      // 2. Open item detail in the foreground
-      // This ensures that closing the modal lands the user on the Store Page.
-      router.push(`/partner/${itemPartnerId}`, { scroll: false });
-      router.push(`/partner/${itemPartnerId}/item/${id}`, { scroll: false });
-    } else {
-      router.push(`/search?q=${encodeURIComponent(name)}`);
-    }
-  };
+  const finalHref = itemPartnerId
+    ? href
+    : `/search?q=${encodeURIComponent(name)}`;
 
   return (
-    <div
-      role="link"
-      tabIndex={0}
-      onClick={handleNavigation}
-      onKeyDown={(e) => e.key === 'Enter' && handleNavigation(e as any)}
-      className={cn("cursor-pointer", cardClassName)}
+    <Link
+      href={finalHref}
+      scroll={false}
+      prefetch={true}
+      onClick={() => triggerHaptic(HapticPattern.ACTION)}
+      className={cn("block", cardClassName)}
     >
       {cardContent}
-    </div>
+    </Link>
   );
 }

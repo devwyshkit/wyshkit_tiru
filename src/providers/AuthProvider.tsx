@@ -90,7 +90,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
             setLoading(false);
         } catch (err) {
-            console.error('Auth Init Error:', err);
+            logger.error('Auth Init Error:', err as Error);
             setError('Failed to initialize authentication');
             setLoading(false);
         }

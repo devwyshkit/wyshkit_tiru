@@ -25,6 +25,7 @@ export interface DraftItem {
  * Draft item with display data (hydrated)
  */
 export interface HydratedDraftItem extends DraftItem {
+  id: string;
   name: string;
   image: string;
   basePrice: number;
