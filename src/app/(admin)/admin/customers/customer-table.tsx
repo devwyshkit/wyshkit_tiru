@@ -11,7 +11,7 @@ import type { Database } from '@/lib/supabase/database.types'
 
 type Tables<T extends keyof Database['public']['Tables']> = Database['public']['Tables'][T]['Row']
 
-type Customer = Pick<any /* TODO: Add users to database schema types */, 'id' | 'full_name' | 'phone' | 'email' | 'created_at' | 'status'>
+type Customer = Pick<Tables<'users'>, 'id' | 'full_name' | 'phone' | 'email' | 'created_at' | 'status'>
 
 interface CustomerTableProps {
   customers: Customer[]
