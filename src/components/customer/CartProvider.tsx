@@ -87,11 +87,16 @@ export function CartProvider({
         (state: Cart, newItem: { itemId: string; variantId: string | null; personalization: SelectedPersonalization; selectedAddons?: any[]; quantity: number; itemName?: string; itemImage?: string; unitPrice?: number; partnerId?: string; partnerName?: string }) => {
 
             const newItemAddonsKey = (newItem.selectedAddons || []).map(a => a.id).sort().join(',');
+            const newItemPersKey = newItem.personalization?.enabled
+                ? `enabled:${newItem.personalization.optionId || 'default'}`
+                : 'disabled';
 
             const existingItemIndex = state.items.findIndex(
                 i => i.itemId === newItem.itemId &&
                     (i.selectedVariantId ?? null) === newItem.variantId &&
-                    ((i.selectedAddons || []).map(a => a.id).sort().join(',') === newItemAddonsKey)
+                    ((i.selectedAddons || []).map(a => a.id).sort().join(',') === newItemAddonsKey) &&
+                    (i.personalization?.enabled === newItem.personalization?.enabled &&
+                        (i.personalization?.optionId ?? null) === (newItem.personalization?.optionId ?? null))
             );
 
             let newItems;
@@ -121,6 +126,7 @@ export function CartProvider({
                     personalization: newItem.personalization,
                     selectedAddons: newItem.selectedAddons,
                     partnerName: newItem.partnerName,
+                    partnerId: newItem.partnerId,
                 };
 
                 newItems = [
@@ -247,8 +253,7 @@ export function CartProvider({
 
         try {
             let result;
-            // @ts-ignore
-            const updateItemId = (optimisticData as any)?.updateItemId;
+            const updateItemId = optimisticData && 'updateItemId' in optimisticData ? (optimisticData as any).updateItemId : undefined;
 
             if (updateItemId) {
                 result = await draftOrderActions.updateCartItem(updateItemId, {
