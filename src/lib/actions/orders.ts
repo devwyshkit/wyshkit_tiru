@@ -15,7 +15,7 @@ export interface PlaceOrderItem {
   variantId?: string | null;
   quantity: number;
   hasPersonalization?: boolean;
-  personalization?: { enabled?: boolean; optionId?: string } | null;
+  personalization?: { enabled?: boolean; option_id?: string } | null;
   selectedAddons?: Array<{ id: string; name?: string; price?: number; requires_preview?: boolean }>;
 }
 

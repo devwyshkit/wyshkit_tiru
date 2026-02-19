@@ -88,7 +88,7 @@ export function CartProvider({
 
             const newItemAddonsKey = (newItem.selectedAddons || []).map(a => a.id).sort().join(',');
             const newItemPersKey = newItem.personalization?.enabled
-                ? `enabled:${newItem.personalization.optionId || 'default'}`
+                ? `enabled:${newItem.personalization.option_id || 'default'}`
                 : 'disabled';
 
             const existingItemIndex = state.items.findIndex(
@@ -96,7 +96,7 @@ export function CartProvider({
                     (i.selectedVariantId ?? null) === newItem.variantId &&
                     ((i.selectedAddons || []).map(a => a.id).sort().join(',') === newItemAddonsKey) &&
                     (i.personalization?.enabled === newItem.personalization?.enabled &&
-                        (i.personalization?.optionId ?? null) === (newItem.personalization?.optionId ?? null))
+                        (i.personalization?.option_id ?? null) === (newItem.personalization?.option_id ?? null))
             );
 
             let newItems;

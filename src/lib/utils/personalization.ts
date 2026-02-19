@@ -5,7 +5,7 @@
 
 export interface PersonalizationCheckItem {
   hasPersonalization?: boolean;
-  personalization?: { enabled?: boolean; optionId?: string } | null;
+  personalization?: { enabled?: boolean; option_id?: string } | null;
   selectedAddons?: Array<{ id: string; name?: string; price?: number; requires_preview?: boolean }>;
 }
 
@@ -35,7 +35,7 @@ export function hasItemPersonalization(item: any): boolean {
 
   // 4. Legacy check for specific metadata
   const pers = item.personalization || {};
-  if (pers.enabled && (pers.optionId || pers.fields)) return true;
+  if (pers.enabled && (pers.option_id || pers.fields)) return true;
 
   return false;
 }

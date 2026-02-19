@@ -97,7 +97,7 @@ export const getCheckoutData = cache(async (): Promise<CheckoutData> => {
             item_id: item.itemId,
             quantity: item.quantity,
             variant_id: item.variantId,
-            personalization_option_id: (item as any).personalization?.optionId || null,
+            personalization_option_id: (item as any).personalization?.option_id || null,
             has_personalization: hasItemPersonalization(item),
             selected_addons: (item as any).selectedAddons || []
         }))

@@ -102,12 +102,12 @@ export async function createPaymentOrder(
         // 2. FETCH PRICING FROM DB RPC
         const { data: pricingData, error: pricingError } = await (supabase as any).rpc('calculate_order_total', {
             p_cart_items: payload.draftItems.map((item: any) => ({
-                itemId: item.itemId,
+                item_id: item.itemId,
                 quantity: item.quantity,
-                variantId: item.selectedVariantId ?? item.variantId ?? null,
-                personalizationOptionId: item.personalization?.optionId || null,
-                hasPersonalization: hasAnyPersonalization([item]),
-                selectedAddons: item.selectedAddons || []
+                variant_id: item.selectedVariantId ?? item.variantId ?? null,
+                personalization_option_id: item.personalization?.option_id || null,
+                has_personalization: hasAnyPersonalization([item]),
+                selected_addons: item.selectedAddons || []
             })),
             p_delivery_fee_override: deliveryFee,
             p_address_id: payload.addressId,
@@ -146,12 +146,12 @@ export async function createPaymentOrder(
             .insert({
                 user_id: user.id,
                 items: payload.draftItems.map((item: any) => ({
-                    itemId: item.itemId,
-                    variantId: item.selectedVariantId ?? item.variantId ?? null,
+                    item_id: item.itemId,
+                    variant_id: item.selectedVariantId ?? item.variantId ?? null,
                     quantity: item.quantity,
-                    hasPersonalization: hasAnyPersonalization([item]),
+                    has_personalization: hasAnyPersonalization([item]),
                     personalization: item.personalization || null,
-                    selectedAddons: item.selectedAddons || [],
+                    selected_addons: item.selected_addons || [],
                 })),
                 address_id: payload.addressId,
                 metadata: {

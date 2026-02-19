@@ -21,9 +21,9 @@ export interface PersonalizationConfig {
 
 export interface SelectedPersonalization {
   enabled: boolean;
-  optionId?: string;
+  option_id?: string;
   text?: string;
-  fileUrl?: string;
+  file_url?: string;
   instructions?: string;
   price?: number;
 }

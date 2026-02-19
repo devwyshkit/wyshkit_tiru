@@ -23,7 +23,7 @@ interface RecentOrder {
     variant_id?: string;
     personalization?: {
       enabled: boolean;
-      optionId?: string;
+      option_id?: string;
     };
   }>;
   total: number;

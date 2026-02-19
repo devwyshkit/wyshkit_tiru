@@ -303,7 +303,7 @@ export async function addToCart(payload: {
     // 2. Duplicate Item Check (In-Memory)
     const normalizedPersonalization = personalization || { enabled: false }
     const personalizationKey = normalizedPersonalization.enabled
-      ? `enabled:${normalizedPersonalization.optionId || 'default'}`
+      ? `enabled:${(normalizedPersonalization as any).option_id || (normalizedPersonalization as any).optionId || 'default'}`
       : 'disabled'
 
     // Addons Key Generation (Sorted IDs for consistency)
@@ -321,7 +321,7 @@ export async function addToCart(payload: {
 
       const ciPers = ci.personalization || { enabled: false }
       const ciKey = ciPers.enabled
-        ? `enabled:${ciPers.optionId || 'default'}`
+        ? `enabled:${(ciPers as any).option_id || (ciPers as any).optionId || 'default'}`
         : 'disabled'
 
       const ciAddonsKey = (ci.selected_addons || [])

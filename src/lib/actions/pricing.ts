@@ -46,7 +46,7 @@ export async function calculateOrderTotalRPC(
         item_id: item.item_id,
         quantity: item.quantity,
         variant_id: item.variant_id ?? null,
-        personalization_option_id: item.personalization_option_id ?? null,
+        personalization_option_id: item.personalization_option_id ?? ((item as any).personalization?.option_id || null),
         has_personalization: item.has_personalization ?? false,
         selected_addons: item.selected_addons ?? []
       })) as unknown as Json,
